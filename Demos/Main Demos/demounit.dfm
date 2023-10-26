@@ -1,57 +1,63 @@
 object Form1: TForm1
   Left = 498
   Top = 188
-  Width = 772
-  Height = 561
-  Color = clBtnFace
+  ClientHeight = 640
+  ClientWidth = 975
+  Color = clWindow
+  Ctl3D = False
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
-  Font.Height = -13
-  Font.Name = 'System'
+  Font.Height = -12
+  Font.Name = 'Segoe UI'
   Font.Style = []
   Menu = MainMenu
-  OldCreateOrder = True
+  Position = poDesigned
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnShow = FormShow
-  PixelsPerInch = 96
-  TextHeight = 16
+  TextHeight = 15
   object Panel1: TPanel
     Left = 0
-    Top = 485
-    Width = 756
+    Top = 622
+    Width = 975
     Height = 18
     Align = alBottom
     Alignment = taLeftJustify
     BevelInner = bvLowered
     BevelOuter = bvNone
     TabOrder = 0
+    ExplicitTop = 621
+    ExplicitWidth = 971
     object ProgressBar: TProgressBar
-      Left = 606
+      Left = 825
       Top = 1
       Width = 149
       Height = 16
       Align = alRight
-      Min = 0
-      Max = 100
       TabOrder = 0
       Visible = False
+      ExplicitLeft = 821
     end
   end
   object Panel2: TPanel
     Left = 0
     Top = 0
-    Width = 756
+    Width = 975
     Height = 33
     Align = alTop
     BevelOuter = bvNone
     TabOrder = 1
+    ExplicitWidth = 971
+    DesignSize = (
+      975
+      33)
     object Edit1: TEdit
       Left = 246
       Top = 4
-      Width = 337
-      Height = 24
+      Width = 728
+      Height = 21
       TabStop = False
+      Anchors = [akLeft, akTop, akRight, akBottom]
       ReadOnly = True
       TabOrder = 3
     end
@@ -96,69 +102,61 @@ object Form1: TForm1
       OnClick = RepaintButtonClick
     end
   end
-  object Panel3: TPanel
+  object Viewer: THtmlViewer
     Left = 0
     Top = 33
-    Width = 756
-    Height = 452
+    Width = 975
+    Height = 589
+    BorderStyle = htSingle
+    DefBackground = clWindow
+    DefFontColor = clWindowText
+    DefOverLinkColor = clFuchsia
+    HistoryMaxCount = 6
+    ImageCacheCount = 6
+    NoSelect = False
+    PrintMarginBottom = 2.000000000000000000
+    PrintMarginLeft = 2.000000000000000000
+    PrintMarginRight = 2.000000000000000000
+    PrintMarginTop = 2.000000000000000000
+    PrintScale = 1.000000000000000000
+    QuirksMode = qmDetect
+    Text = 'Hello Serif<pre>Hello Monospace</pre>'
+    OnFormSubmit = SubmitEvent
+    OnHistoryChange = HistoryChange
+    OnHotSpotClick = HotSpotClick
+    OnHotSpotCovered = HotSpotChange
+    OnInclude = ViewerInclude
+    OnMetaRefresh = MetaRefreshEvent
+    OnObjectClick = ObjectClick
+    OnPrintHTMLFooter = ViewerPrintHTMLFooter
+    OnPrintHTMLHeader = ViewerPrintHTMLHeader
+    OnProcessing = ProcessingHandler
+    OnProgress = ViewerProgress
+    OnRightClick = RightClick
+    OnScript = ViewerScript
+    OnSoundRequest = SoundRequest
     Align = alClient
-    BevelInner = bvLowered
-    BevelOuter = bvNone
-    Caption = 'Panel3'
     TabOrder = 2
-    object Viewer: THtmlViewer
-      Left = 1
-      Top = 1
-      Width = 754
-      Height = 450
-      BorderStyle = htFocused
-      DefBackground = clWindow
-      DefFontColor = clWindowText
-      DefFontName = 'Times New Roman'
-      DefOverLinkColor = clFuchsia
-      DefPreFontName = 'Courier New'
-      HistoryMaxCount = 6
-      ImageCacheCount = 6
-      NoSelect = False
-      PrintMarginBottom = 2
-      PrintMarginLeft = 2
-      PrintMarginRight = 2
-      PrintMarginTop = 2
-      PrintScale = 1
-      QuirksMode = qmDetect
-      OnFormSubmit = SubmitEvent
-      OnHistoryChange = HistoryChange
-      OnHotSpotClick = HotSpotClick
-      OnHotSpotCovered = HotSpotChange
-      OnInclude = ViewerInclude
-      OnMetaRefresh = MetaRefreshEvent
-      OnObjectClick = ObjectClick
-      OnPrintHTMLFooter = ViewerPrintHTMLFooter
-      OnPrintHTMLHeader = ViewerPrintHTMLHeader
-      OnProcessing = ProcessingHandler
-      OnProgress = ViewerProgress
-      OnRightClick = RightClick
-      OnScript = ViewerScript
-      OnSoundRequest = SoundRequest
-      Align = alClient
-      TabOrder = 0
-      TabStop = True
-      OnMouseMove = ViewerMouseMove
-      object MediaPlayer: TMediaPlayer
-        Left = 336
-        Top = 40
-        Width = 253
-        Height = 30
-        Visible = False
-        TabOrder = 3
-        OnNotify = MediaPlayerNotify
-      end
+    TabStop = True
+    OnMouseMove = ViewerMouseMove
+    ExplicitWidth = 971
+    ExplicitHeight = 588
+    object MediaPlayer: TMediaPlayer
+      Left = 336
+      Top = 40
+      Width = 253
+      Height = 30
+      DoubleBuffered = True
+      Visible = False
+      ParentDoubleBuffered = False
+      TabOrder = 1
+      OnNotify = MediaPlayerNotify
     end
   end
   object OpenDialog: TOpenDialog
     DefaultExt = 'htm'
     Filter = 'html files|*.htm;*.html|all files|*.*'
-    Options = [ofHideReadOnly, ofPathMustExist, ofFileMustExist]
+    Options = [ofHideReadOnly, ofPathMustExist, ofFileMustExist, ofEnableSizing]
     Left = 321
     Top = 2
   end

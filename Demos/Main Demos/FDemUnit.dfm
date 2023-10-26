@@ -1,43 +1,42 @@
 object Form1: TForm1
   Left = 705
   Top = 161
-  Width = 1187
-  Height = 887
   Caption = 'Frame Demo'
+  ClientHeight = 714
+  ClientWidth = 1155
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
-  Font.Height = -13
-  Font.Name = 'System'
+  Font.Height = -12
+  Font.Name = 'Segoe UI'
   Font.Style = []
   Menu = MainMenu
-  OldCreateOrder = True
   Position = poScreenCenter
   ShowHint = True
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnShow = FormShow
-  PixelsPerInch = 96
-  TextHeight = 16
+  TextHeight = 15
   object FrameViewer: TFrameViewer
     Left = 0
     Top = 27
-    Width = 1179
-    Height = 782
+    Width = 1155
+    Height = 660
+    CodePage = 0
     DefBackground = clWindow
-    DefFontName = 'Times New Roman'
+    DefFontColor = clWindowText
     DefHotSpotColor = clNavy
-    DefPreFontName = 'Courier New'
     fvOptions = [fvMetaRefresh, fvNoBorder, fvOverLinksActive, fvPrintTableBackground, fvPrintBackground, fvShowVScroll]
     HistoryIndex = 0
     HistoryMaxCount = 6
     ImageCacheCount = 6
     NoSelect = False
-    PrintMarginBottom = 3
-    PrintMarginLeft = 2
-    PrintMarginRight = 2
-    PrintMarginTop = 2
-    PrintScale = 1
+    PrintMarginBottom = 3.000000000000000000
+    PrintMarginLeft = 2.000000000000000000
+    PrintMarginRight = 2.000000000000000000
+    PrintMarginTop = 2.000000000000000000
+    PrintScale = 1.000000000000000000
+    Text = 'Hello Serif<pre>Hello Monospace</pre>'
     OnBlankWindowRequest = WindowRequest
     OnHistoryChange = HistoryChange
     OnHotSpotTargetClick = HotSpotTargetClick
@@ -54,18 +53,21 @@ object Form1: TForm1
     TabOrder = 0
     OnMouseMove = FrameViewerMouseMove
     OnFormSubmit = SubmitEvent
+    ExplicitWidth = 1151
+    ExplicitHeight = 659
   end
   object Panel1: TPanel
     Left = 0
     Top = 0
-    Width = 1179
+    Width = 1155
     Height = 27
     Align = alTop
     BevelOuter = bvNone
     BorderWidth = 2
     TabOrder = 1
+    ExplicitWidth = 1151
     DesignSize = (
-      1179
+      1155
       27)
     object ReloadButton: TButton
       Left = 2
@@ -103,10 +105,11 @@ object Form1: TForm1
     object Edit2: TEdit
       Left = 200
       Top = 2
-      Width = 985
-      Height = 24
+      Width = 939
+      Height = 23
       Anchors = [akLeft, akTop, akRight, akBottom]
       TabOrder = 3
+      ExplicitWidth = 935
     end
   end
   object MediaPlayer: TMediaPlayer
@@ -114,40 +117,44 @@ object Form1: TForm1
     Top = 115
     Width = 253
     Height = 30
+    DoubleBuffered = True
     Visible = False
+    ParentDoubleBuffered = False
     TabOrder = 2
     OnNotify = MediaPlayerNotify
   end
   object Panel3: TPanel
     Left = 0
-    Top = 809
-    Width = 1179
+    Top = 687
+    Width = 1155
     Height = 27
     Align = alBottom
     Alignment = taLeftJustify
     BevelOuter = bvNone
     BorderWidth = 2
     TabOrder = 3
+    ExplicitTop = 686
+    ExplicitWidth = 1151
     object ProgressBar: TProgressBar
-      Left = 1027
+      Left = 1003
       Top = 2
       Width = 150
       Height = 23
       Align = alRight
-      Min = 0
-      Max = 100
       TabOrder = 0
       Visible = False
+      ExplicitLeft = 999
     end
     object InfoPanel: TPanel
       Left = 89
       Top = 2
-      Width = 938
+      Width = 914
       Height = 23
       Align = alClient
       Alignment = taLeftJustify
       BevelOuter = bvLowered
       TabOrder = 1
+      ExplicitWidth = 910
     end
     object QuirksModePanel: TPanel
       Left = 2
@@ -161,7 +168,7 @@ object Form1: TForm1
   end
   object MainMenu: TMainMenu
     Left = 360
-    Top = 72
+    Top = 40
     object File1: TMenuItem
       Caption = '&File'
       OnClick = File1Click
@@ -223,9 +230,17 @@ object Form1: TForm1
         Checked = True
         OnClick = ShowimagesClick
       end
-      object Fonts: TMenuItem
+      object mmiDefaultFont: TMenuItem
         Caption = 'Default &Font/Colors'
-        OnClick = FontsClick
+        OnClick = mmiDefaultFontClick
+      end
+      object mmiParentFont: TMenuItem
+        Caption = 'Parent Font'
+        OnClick = mmiParentFontClick
+      end
+      object mmiParentColor: TMenuItem
+        Caption = 'Parent Color'
+        OnClick = mmiParentColorClick
       end
       object mmiQuirksMode: TMenuItem
         Caption = 'Quirks Mode'

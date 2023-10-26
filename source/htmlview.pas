@@ -1,7 +1,7 @@
 {
 Version   11.10
 Copyright (c) 1995-2008 by L. David Baldwin
-Copyright (c) 2008-2022 by HtmlViewer Team
+Copyright (c) 2008-2023 by HtmlViewer Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -35,7 +35,7 @@ interface
 
 uses
 {$ifdef LCL}
-  LclIntf, LclType, LMessages, types, FPimage, HtmlMisc,
+  LclIntf, LclType, LclVersion, LMessages, types, FPimage, HtmlMisc,
 {$else}
   Windows,
 {$endif}
@@ -48,6 +48,7 @@ uses
 {$endif}
   UrlConn,
   URLSubs,
+  HtmlFonts,
   HtmlGlobals,
   HtmlBuffer,
   HtmlImages,
@@ -60,9 +61,10 @@ uses
   StyleUn;
 
 const
-  wm_FormSubmit = wm_User + 100;
-  wm_MouseScroll = wm_User + 102;
-  wm_UrlAction = wm_User + 103;
+  wm_FormSubmit   = WM_USER + 100;
+  wm_Retext       = WM_USER + 101;
+  wm_MouseScroll  = WM_USER + 102;
+  wm_UrlAction    = WM_USER + 103;
 
 type
   EhtException = class(Exception);
@@ -205,6 +207,8 @@ type
 
   TLoadHistoryItem = procedure(Sender: TObject; HI: ThvHistoryItem; var Handled: Boolean) of object;
 
+  ThtRetextMode = (rtmNone, rtmRetext, rtmNewText);
+
   //TODO -oBG, 16.08.2015: split THtmlViewer into ThtBase and THtmlViewer.
   //
   // ThtBase (or a derivate of it) will be the control that TFVBase will create
@@ -248,6 +252,7 @@ type
     FBase: ThtString;
     FBaseEx: ThtString;
     FBaseTarget: ThtString;
+    FText: ThtString;
     FBorderStyle: THTMLBorderStyle;
     FScrollBars: ThtScrollStyle;
     FOptions: THtmlViewerOptions;
@@ -272,6 +277,7 @@ type
     // status info
     FViewerState: THtmlViewerState;
     FHistory: ThvHistory;
+    FMustRetext: ThtRetextMode;
 
     // document related stuff
     FSectionList: ThtDocument;
@@ -386,6 +392,7 @@ type
     procedure WMFormSubmit(var Message: TMessage); message WM_FormSubmit;
     procedure WMGetDlgCode(var Message: TMessage); message WM_GETDLGCODE;
     procedure WMMouseScroll(var Message: TMessage); message WM_MouseScroll;
+    procedure WMRetext(var Message: TMessage); message wm_Retext;
     procedure WMSize(var Message: TWMSize); message WM_SIZE;
     procedure WMUrlAction(var Message: TMessage); message WM_UrlAction;
     function GetHistoryIndex: Integer;
@@ -401,7 +408,13 @@ type
     property HTMLTimer: TTimer read FHTMLTimer;
     property BorderPanel: TPanel read FBorderPanel;
     property PaintPanel: TPaintPanel read FPaintPanel;
+    procedure InitSectionList;
   protected
+    procedure ScaleChanged; override;
+    procedure StyleChanged; override;
+{$ifdef LCL}
+    procedure SetPPI(Value: Integer); override;
+{$endif}
 {$ifdef has_StyleElements}
     procedure UpdateStyleElements; override;
 {$endif}
@@ -455,6 +468,9 @@ type
     procedure SetVisitedMaxCount(const Value: Integer); override;
     procedure Loaded; override;
     function CanAutoSize(var NewWidth: Integer; var NewHeight: Integer): Boolean; override;
+{$ifdef DEBUG}
+    procedure SetName(const NewName: TComponentName); override;
+{$endif}
     property ScrollWidth: Integer read FScrollWidth;
   public
     constructor Create(Owner: TComponent); override;
@@ -530,9 +546,12 @@ type
     procedure LoadTextFromString(const S: ThtString); deprecated; // use LoadFromString() instead.
     procedure LoadTextStrings(Strings: ThtStrings); deprecated; // use LoadFromString() instead.
 {$endif}
-    //
-    procedure Reformat;
-    procedure Reload;
+    // update current content:
+    procedure Reformat; // reformat current text (e.g. after width changed). Calls Layout again.
+    procedure Retext(Value: ThtRetextMode); overload; // send a message to reload current text soon (e.g. after scale, default font or background color changed)
+    procedure Retext; overload; // reload current text according to FMustRetext (e.g set by Retext(Value: ThtRetextMode);
+    procedure Reload;   // reload current file (e.g. after file content changed)
+
     procedure Repaint; override;
     procedure ReplaceImage(const NameID: ThtString; NewImage: TStream);
     procedure ScrollXY(const Delta: TSize);
@@ -543,6 +562,7 @@ type
     procedure ToggleIDExpand(const URL: ThtString; var Handled: Boolean);
     procedure UpdateSize;
     procedure UrlAction;
+
     property Base: ThtString read FBase write SetBase;
     property BaseTarget: ThtString read FBaseTarget;
     property CaretPos: Integer read FCaretPos write SetCaretPos;
@@ -679,6 +699,9 @@ type
     property Enabled;
     property Height default 150;
     property Name;
+    property ParentColor default False;
+    property ParentFont default False;
+    property ParentShowHint;
     property PopupMenu;
     property ShowHint;
     property TabOrder;
@@ -871,6 +894,8 @@ begin
   Include(FViewerState, vsCreating);
   Height := 150;
   Width := 150;
+  ParentColor := False;
+  ParentFont := False;
   SetCursor(crIBeam);
 
   FBorderPanel := TPanel.Create(Self);
@@ -892,8 +917,11 @@ begin
   FPaintPanel.Parent := FBorderPanel; //Self;
   FPaintPanel.BevelOuter := bvNone;
   FPaintPanel.BevelInner := bvNone;
+  FPaintPanel.Align := alClient; // MV, 20.12.2020: issue 139. paint panel should fill available htmlviewer area
 {$ifndef LCL}
   FPaintPanel.Ctl3D := False;
+{$else}
+  FPaintPanel.Canvas.Font.PixelsPerInch := PixelsPerInch;
 {$endif}
   //FPaintPanel.OnPaint := HTMLPaint;
   FPaintPanel.OnMouseDown := HTMLMouseDown;
@@ -929,6 +957,7 @@ begin
   FSectionList.OnBackgroundChange := BackgroundChange;
   FSectionList.ShowImages := True;
   FSectionList.GetImage := DoGetImage;
+  FSectionList.PixelsPerInch := PixelsPerInch;
   FNameList := FSectionList.IDNameList;
 
   SetOptions([htPrintTableBackground, htPrintMonochromeBlack]);
@@ -976,6 +1005,7 @@ begin
 
   if Owner is THtmlFrameBase then
     FFrameOwner := THtmlFrameBase(Owner);
+
   if Source is THtmlViewer then
   begin
     Self.QuirksMode := Viewer.QuirksMode;
@@ -1115,26 +1145,14 @@ procedure THtmlViewer.LoadFile(const FileName: ThtString; ft: ThtmlFileType);
 var
   Dest, Name: ThtString;
   Stream: TStream;
-{$ifdef FPC}
-  ShortName: ThtString;
-{$endif}
 begin
   IOResult; {eat up any pending errors}
   SplitDest(FileName, Name, Dest);
   if Name <> '' then
     Name := ExpandFileName(Name);
-  //FCurrentFile := Name; //BG, 03.04.2011: issue 83: Failure to set FCurrentFile
-  if not FileExists(Name) then
-  begin
-{$ifdef FPC}
-    //BG, 24.04.2014: workaround for non ansi file names:
-    ShortName := ExtractShortPathName(UTF8Decode(Name));
-    if FileExists(ShortName) then
-      Name := ShortName
-    else
-{$endif}
+
+  if not htFileExists(Name) then
     raise EhtLoadError.CreateFmt('Can''t locate file ''%s''.', [Name]);
-  end;
 
   Stream := TFileStream.Create( htStringToString(Name), fmOpenRead or fmShareDenyWrite);
   try
@@ -1144,7 +1162,7 @@ begin
   end;
 end;
 
-procedure THtmlViewer.LoadFromFile(const FileName: ThtString; DocType: ThtmlFileType);
+procedure THtmlViewer.LoadFromFile(const FileName: ThtString; DocType: THtmlFileType);
 var
   OldFile, OldTitle: ThtString;
   OldPos: Integer;
@@ -1154,9 +1172,11 @@ begin
   if IsProcessing then
     Exit;
 {$ifdef FPC}
-  // in lazarus 1.4.0 with fpc 2.6.4
-  // htmlviewer will not draw properly if focused
-  RemoveFocus(false);
+  {$if lcl_fullversion < 1050000}
+    // in lazarus 1.4.0 with fpc 2.6.4
+    // htmlviewer will not draw properly if focused
+    RemoveFocus(false);
+  {$ifend}
 {$endif}
   if Filename <> '' then
   begin
@@ -1236,6 +1256,13 @@ end;
 {----------------THtmlViewer.LoadFromString}
 procedure THtmlViewer.LoadFromString(const S: ThtString; const Reference: ThtString; DocType: THtmlFileType);
 begin
+{$ifdef FPC}
+  {$if lcl_fullversion < 1050000}
+    // in lazarus 1.4.0 with fpc 2.6.4
+    // htmlviewer will not draw properly if focused
+    RemoveFocus(false);
+  {$ifend}
+{$endif}
   LoadString(S, Reference, DocType);
 end;
 
@@ -1252,9 +1279,22 @@ end;
 procedure THtmlViewer.LoadFromUrl(const Url: ThtString; DocType: THtmlFileType);
 var
   Scheme, Specific, ResType: ThtString;
+  I, L: Integer;
 begin
   SplitScheme(Url, Scheme, Specific);
-  if Scheme = 'res' then
+  if Scheme = 'source' then // 'source://'
+  begin
+    I := 1;
+    L := Length(Specific);
+    while (I <= L) and (Specific[I] = '/') do
+      Inc(I);
+    if I > 1 then
+      Specific := Copy(Specific, I, L);
+    if DocType = OtherType then
+      DocType := HTMLType;
+    LoadFromString( Specific, '', DocType );
+  end
+  else if Scheme = 'res' then // 'res:///'
   begin
     Specific := HTMLToRes(Url, ResType);
     LoadFromResource(HInstance, Specific, DocType);
@@ -1272,9 +1312,11 @@ begin
   if IsProcessing then
     Exit;
 {$ifdef FPC}
-  // in lazarus 1.4.0 with fpc 2.6.4
-  // htmlviewer will not draw properly if focused
-  RemoveFocus(false);
+  {$if lcl_fullversion < 1050000}
+    // in lazarus 1.4.0 with fpc 2.6.4
+    // htmlviewer will not draw properly if focused
+    RemoveFocus(false);
+  {$ifend}
 {$endif}
   SplitDest(DocName, Name, Dest);
   case DocType of
@@ -1298,6 +1340,8 @@ begin
     Include(FViewerState, vsDontDraw);
     try
       FRefreshDelay := 0;
+      AllMyFonts.Clear;
+      FSectionList.PixelsPerInch := PixelsPerInch;
       FSectionList.ProgressStart := 75;
       htProgressInit;
       try
@@ -1379,6 +1423,8 @@ end;
 procedure THtmlViewer.Loaded;
 begin
   inherited;
+  FPaintPanel.Color := Color; // MV, 20.12.2020: issue 139. paint panel should accept default background color
+
 {$ifdef HasGestures}
   FPaintPanel.Touch := Touch;
   if Assigned(OnGesture) then
@@ -1386,6 +1432,7 @@ begin
   else
     FPaintPanel.OnGesture := HtmlGesture;
 {$endif}
+  LoadFromString(FText);
 end;
 
 {----------------THtmlViewer.LoadString}
@@ -1399,7 +1446,7 @@ end;
 
 {----------------THtmlViewer.LoadFromStream}
 
-procedure THtmlViewer.LoadFromStream(const AStream: TStream; const Reference: ThtString; DocType: ThtmlFileType);
+procedure THtmlViewer.LoadFromStream(const AStream: TStream; const Reference: ThtString; DocType: THtmlFileType);
 begin
   LoadStream(Reference, AStream, DocType);
 end;
@@ -1438,9 +1485,11 @@ begin
   if IsProcessing then
     Exit;
 {$ifdef FPC}
-  // in lazarus 1.4.0 with fpc 2.6.4
-  // htmlviewer will not draw properly if focused
-  RemoveFocus(false);
+  {$if lcl_fullversion < 1050000}
+    // in lazarus 1.4.0 with fpc 2.6.4
+    // htmlviewer will not draw properly if focused
+    RemoveFocus(false);
+  {$ifend}
 {$endif}
   if ResourceName <> '' then
   begin
@@ -1504,13 +1553,13 @@ begin
       BWidth2 := BorderPanel.Width - BorderPanel.ClientWidth;
       BWidth  := BWidth2 div 2;
     end;
-    HWidth  := Width  - BWidth2;
-    VHeight := Height - BWidth2;
+    HWidth  := Max(Width  - BWidth2, 0);
+    VHeight := Max(Height - BWidth2, 0);
 
     case FScrollBars of
       ssVertical:
       begin
-        VBar := (htShowVScroll in htOptions) or (DocHeight > VHeight);
+        VBar := (HWidth > sbWidth) and ((htShowVScroll in htOptions) or (DocHeight > VHeight));
         if VBar then
           Dec(HWidth, sbWidth);
         HBar := False;
@@ -1519,21 +1568,21 @@ begin
       ssHorizontal:
       begin
         VBar := False;
-        HBar := DocWidth > HWidth;
+        HBar := (VHeight > sbWidth) and (DocWidth > HWidth);
         if HBar then
           Dec(VHeight, sbWidth);
       end;
 
       ssBoth:
       begin
-        VBar := (htShowVScroll in htOptions) or (DocHeight > VHeight);
+        VBar := (HWidth > sbWidth) and ((htShowVScroll in htOptions) or (DocHeight > VHeight));
         if VBar then
           Dec(HWidth, sbWidth);
-        HBar := DocWidth > HWidth;
+        HBar := (VHeight > sbWidth) and (DocWidth > HWidth);
         if HBar then
         begin
           Dec(VHeight, sbWidth);
-          if not VBar and (DocHeight > VHeight) then
+          if not VBar and (HWidth > sbWidth) and (DocHeight > VHeight) then
           begin
             VBar := True;
             Dec(HWidth, sbWidth);
@@ -1578,11 +1627,12 @@ var
 begin
   FScrollWidth := Min(ScrollWidth, MaxHScroll);
   ScrollInfo := GetScrollInfo(ScrollWidth, FMaxVertical);
+  PaintPanel.Align := alNone;
   with ScrollInfo do
   begin
 //    BorderPanel.Visible := BWidth > 0;
     PaintPanelRect := Rect(BWidth, BWidth, HWidth, VHeight);
-    PaintPanel.SetBounds(BWidth, BWidth, HWidth, VHeight);
+    FPaintPanel.SetBounds(BWidth, BWidth, HWidth, VHeight);
   end;
   if not SameRect(PaintPanelRect, PaintPanel.BoundsRect) then
   begin
@@ -1592,7 +1642,7 @@ begin
     begin
 //      BorderPanel.Visible := BWidth > 0;
       PaintPanelRect := Rect(BWidth, BWidth, HWidth, VHeight);
-      PaintPanel.SetBounds(BWidth, BWidth, HWidth, VHeight);
+      FPaintPanel.SetBounds(BWidth, BWidth, HWidth, VHeight);
     end;
   end;
 
@@ -1914,7 +1964,7 @@ begin
   UrlAction;
 end;
 
-procedure THtmlViewer.URLAction;
+procedure THtmlViewer.UrlAction;
 var
   S, Dest: ThtString;
   OldPos: Integer;
@@ -1961,6 +2011,49 @@ begin
   end;
 end;
 
+//-- BG ------------------------------------------------------- 06.12.2022 --
+// Extracted from THtmlViewer.InitLoad and THtmlViewer.Clear
+procedure THtmlViewer.InitSectionList;
+var
+  LDefFontName: string;
+  LDefFontSize: Integer;
+  LDefFontColor: Integer;
+  LDefBackgroundColor: Integer;
+begin
+  if ParentFont then
+  begin
+    LDefFontName := Font.Name;
+    LDefFontSize := Font.Size;
+    LDefFontColor := Font.Color;
+  end
+  else
+  begin
+    LDefFontName := DefFontName;
+    LDefFontSize := DefFontSize;
+    LDefFontColor := DefFontColor;
+  end;
+
+  if ParentColor then
+  begin
+    LDefBackgroundColor := Color;
+    FPaintPanel.ParentColor := True;
+  end
+  else
+  begin
+    LDefBackgroundColor := DefBackground;
+    FPaintPanel.Color := DefBackground;
+  end;
+
+  FSectionList.SetFonts(
+    htString(LDefFontName), htString(DefPreFontName),
+    LDefFontSize, LDefFontColor,
+    DefHotSpotColor, DefVisitedLinkColor, DefOverLinkColor,
+    LDefBackgroundColor,
+    htOverLinksActive in FOptions,
+    not (htNoLinkUnderline in FOptions),
+    CodePage, CharSet, MarginHeight, MarginWidth);
+end;
+
 {----------------THtmlViewer.AddVisitedLink}
 
 procedure THtmlViewer.AddVisitedLink(const S: ThtString);
@@ -2005,6 +2098,15 @@ begin
 //  if Result then
 //    assert(False, 'Viewer processing. Data may get lost!');
 end;
+
+{$ifdef LCL}
+//-- BG ------------------------------------------------------- 03.10.2022 --
+procedure THtmlViewer.SetPPI(Value: Integer);
+begin
+  inherited SetPPI(Value);
+  FPaintPanel.Canvas.Font.PixelsPerInch := Value;
+end;
+{$endif}
 
 {----------------THtmlViewer.CheckVisitedLinks}
 
@@ -2870,7 +2972,23 @@ end;
 //-- BG ---------------------------------------------------------- 19.07.2017 --
 procedure THtmlViewer.SetText(const Value: ThtString);
 begin
-  LoadFromString(Value);
+//  if csLoading in ComponentState then
+//    FText := Value
+//  else
+//  begin
+//{$ifdef LCL}
+//    FText := Value;
+//    FPaintPanel.Color := Color;
+//    LoadFromString(Value);
+//{$else}
+//    LoadFromString(Value);
+//{$endif}
+//  end;
+  if FText <> Value then
+  begin
+    FText := Value;
+    Retext(rtmNewText);
+  end;
 end;
 
 procedure THtmlViewer.SetBorderStyle(Value: THTMLBorderStyle);
@@ -3010,6 +3128,21 @@ begin
  HiWord = 0 is top of display}
 end;
 
+//-- BG ---------------------------------------------------------- 29.09.2022 --
+procedure THtmlViewer.ScaleChanged;
+begin
+  inherited;
+  try
+    Retext(rtmRetext);
+  finally
+    {$ifdef Linux}
+      PaintPanel.Update;
+    {$else}
+      PaintPanel.Invalidate;
+    {$endif}
+  end;
+end;
+
 procedure THtmlViewer.SetPosition(Value: Integer);
 var
   TopPos: Integer;
@@ -3076,7 +3209,7 @@ begin
   Invalidate;
 end;
 
-function THtmlViewer.HTMLExpandFilename(const Filename, CurrentFilename: ThtString): ThtString;
+function THtmlViewer.HtmlExpandFilename(const Filename, CurrentFilename: ThtString): ThtString;
 var
   FileScheme: ThtString;
   FileSpecific: ThtString;
@@ -3325,6 +3458,21 @@ begin
   FImagesInserted.Enabled := False;
 end;
 
+//-- BG ---------------------------------------------------------- 10.12.2022 --
+procedure THtmlViewer.StyleChanged;
+begin
+  inherited;
+  try
+    Retext(rtmRetext);
+  finally
+    {$ifdef Linux}
+      PaintPanel.Update;
+    {$else}
+      PaintPanel.Invalidate;
+    {$endif}
+  end;
+end;
+
 function THtmlViewer.GetCursor: TCursor;
 begin
   Result := inherited Cursor;
@@ -3352,7 +3500,7 @@ begin
     FDocument.Position := Pos;
   end
   else
-    Result := '';
+    Result := FText;
 end;
 
 procedure THtmlViewer.SetCursor(Value: TCursor);
@@ -3420,11 +3568,11 @@ begin
   {Calculate where the tiled background images go}
     CalcBackgroundLocationAndTiling(PRec, ARect, XOff, YOff, IW, IH, BW, BH, X, Y, X2, Y2);
 
-    DrawBackground(ACanvas, ARect, X, Y, X2, Y2, Image, BW, BH, PaintPanel.Color);
+    DrawBackground(ACanvas, ARect, X, Y, X2, Y2, Image, BW, BH, ThemedColorToRGB( PaintPanel.Color, htseClient ));
   end
   else
   begin {no background image, show color only}
-    DrawBackground(ACanvas, ARect, 0, 0, 0, 0, nil, 0, 0, PaintPanel.Color);
+    DrawBackground(ACanvas, ARect, 0, 0, 0, 0, nil, 0, 0, ThemedColorToRGB( PaintPanel.Color, htseClient ));
   end;
 end;
 
@@ -3450,7 +3598,7 @@ procedure THtmlViewer.DoBackground2(ACanvas: TCanvas; ALeft, ATop, AWidth, AHeig
       OldPal := SelectPalette(DC, ThePalette, False);
       RealizePalette(DC);
 //      ACanvas.Brush.Color := BGColor or PalRelative;
-      ACanvas.Brush.Color := ThemedColor(BGColor {$ifdef has_StyleElements},seClient in StyleElements {$endif}) or PalRelative;
+      ACanvas.Brush.Color := ThemedColorToRGB(BGColor, htseClient) or PalRelative;
       OldBrush := SelectObject(DC, ACanvas.Brush.Handle);
       OldBack := SetBkColor(DC, clWhite);
       OldFore := SetTextColor(DC, clBlack);
@@ -3679,7 +3827,7 @@ var
 
   procedure PaintBackground(Canvas: TCanvas; Top, Bot: Integer);
   begin
-    Canvas.Brush.Color := ThemedColor(CopyList.Background{$ifdef has_StyleElements},seClient in StyleElements {$endif});
+    Canvas.Brush.Color := ThemedColorToRGB(CopyList.Background, htseClient);
     Canvas.Brush.Style := bsSolid;
     Canvas.FillRect(Rect(0, Top, Width + 1, Bot));
   end;
@@ -3875,7 +4023,7 @@ procedure THtmlViewer.MatchMediaQuery(Sender: TObject; const MediaQuery: ThtMedi
       else
       begin
         Len := Abs(Font.Size);
-        Len := LengthConv(Expression.Expression, False, Base, Len, Len div 2, -1);
+        Len := LengthConv(Expression.Expression, False, Base, Len, Len div 2, -1, PixelsPerInch);
         Result := (Len >= 0) and Compared(Value, Len);
       end;
     end;
@@ -4251,7 +4399,7 @@ begin
 
         YDpi := Prn.PixelsPerInchY;
         XDpi := Prn.PixelsPerInchX;
-        WDpi := Round(Screen.PixelsPerInch * PrintScale);
+        WDpi := Round(PixelsPerInch * PrintScale);
         ScaleX := 100.0 / YDpi;
         ScaleY := 100.0 / XDpi;
         PrintList.ScaleX := ScaleX;
@@ -4762,11 +4910,8 @@ begin
   FSectionList.StyleElements := Self.StyleElements;
 {$endif}
   UpdateImageCache;
-  FSectionList.SetFonts(
-    htString(DefFontName), htString(DefPreFontName), DefFontSize, DefFontColor,
-    DefHotSpotColor, DefVisitedLinkColor, DefOverLinkColor, DefBackground,
-    htOverLinksActive in FOptions, not (htNoLinkUnderline in FOptions),
-    CodePage, CharSet, MarginHeight, MarginWidth);
+
+  InitSectionList;
 end;
 
 {----------------THtmlViewer.Clear}
@@ -4788,11 +4933,10 @@ begin
   FCurrentFile := '';
   FCurrentFileType := HTMLType;
 
-  FSectionList.SetFonts(
-    htString(DefFontName), htString(DefPreFontName), DefFontSize, DefFontColor,
-    DefHotSpotColor, DefVisitedLinkColor, DefOverLinkColor, DefBackground,
-    htOverLinksActive in FOptions, not (htNoLinkUnderline in FOptions),
-    CodePage, CharSet, MarginHeight, MarginWidth);
+  FObjects.Clear;
+
+  InitSectionList;
+
   FBase := '';
   FBaseEx := '';
   FBaseTarget := '';
@@ -5123,6 +5267,17 @@ begin
   end;
 end;
 
+{$ifdef DEBUG}
+procedure THtmlViewer.SetName(const NewName: TComponentName);
+begin
+  inherited;
+  FBorderPanel.Name := NewName + '_BorderPanel';
+  FPaintPanel.Name := NewName + '_PaintPanel';
+  FHScrollBar.Name := NewName + '_HScrollBar';
+  FVScrollBar.Name := NewName + '_VScrollBar';
+end;
+{$endif}
+
 procedure THtmlViewer.SetNoSelect(const Value: Boolean);
 begin
   if Value <> NoSelect then
@@ -5234,7 +5389,7 @@ end;
 
 {----------------THtmlViewer.Reload}
 
-procedure THtmlViewer.Reload; {reload the last file}
+procedure THtmlViewer.Reload; {reload the current file}
 var
   Pos: Integer;
 begin
@@ -5246,7 +5401,45 @@ begin
   end;
 end;
 
-{----------------THtmlViewer.GetOurPalette:}
+{----------------THtmlViewer.Retext}
+
+//-- BG ------------------------------------------------------- 01.01.2023 --
+procedure THtmlViewer.Retext(Value: ThtRetextMode);
+begin
+  if FMustRetext < Value then
+    FMustRetext := Value;
+  if HandleAllocated then
+    PostMessage(Handle, wm_Retext, 0, 0)
+end;
+
+//-- BG ------------------------------------------------------- 01.01.2023 --
+procedure THtmlViewer.WMRetext(var Message: TMessage);
+begin
+  Retext;
+end;
+
+//-- BG ------------------------------------------------------- 10.12.2022 --
+procedure THtmlViewer.Retext; {reload the current text}
+var
+  Pos, Sel, Len: Integer;
+begin
+  if FMustRetext <> rtmNone then
+  begin
+    Pos := Position;
+    Sel := SelStart;
+    Len := SelLength;
+    case FMustRetext of
+      rtmRetext: LoadFromString(Text);
+      rtmNewText: LoadFromString(FText);
+    end;
+    FMustRetext := rtmNone;
+    Position := Pos;
+    SelStart := Sel;
+    SelLength := Len;
+  end;
+end;
+
+{----------------THtmlViewer.GetOurPalette}
 
 function THtmlViewer.GetOurPalette: HPalette;
 begin
@@ -5347,7 +5540,7 @@ begin
     HistoryIndex := HistoryIndex - 1;
 end;
 
-procedure THtmlViewer.SetOptions(Value: ThtmlViewerOptions);
+procedure THtmlViewer.SetOptions(Value: THtmlViewerOptions);
 begin
   if Value <> FOptions then
   begin
@@ -5571,7 +5764,7 @@ procedure THtmlViewer.htStreamRequest(var Url: ThtString; var Stream: TStream; o
     else
     begin
       PathOfUrl := ExtractFilePath(Url);
-      if FileExists(Url) then
+      if htFileExists(Url) then
         Stream := TFileStream.Create( htStringToString(Url), fmOpenRead or fmShareDenyWrite);
     end;
 
@@ -5664,9 +5857,9 @@ begin
       SelectObject(MemDC, Bm);
       SetWindowOrgEx(MemDC, X, Y, nil);
       Canvas2.Font := Font;
-      Canvas2.Font.Color := ThemedColor(Font.Color{$ifdef has_StyleElements},seFont in StyleElements {$endif});
+      Canvas2.Font.Color := FViewer.ThemedColorToRGB(Font.Color, htseFont);
       Canvas2.Handle := MemDC;
-      Canvas2.Brush.Color := ThemedColor(Color{$ifdef has_StyleElements},seClient in StyleElements {$endif});
+      Canvas2.Brush.Color := FViewer.ThemedColorToRGB(Color, htseClient);
       Canvas2.Brush.Style := bsSolid;
       FViewer.DrawBorder;
       FViewer.HTMLPaint(Canvas2, Rect);
@@ -5689,7 +5882,7 @@ begin
 //  of frameviewer, if some images have to be shown
 //  (Happened in FrameDemo on page 'samples' with images pengbrew and pyramids).
   Canvas.Font := Font;
-  Canvas.Brush.Color := ThemedColor(Color{$ifdef has_StyleElements},seClient in StyleElements {$endif});
+  Canvas.Brush.Color := FViewer.ThemedColorToRGB(Color, htseClient);
   Canvas.Brush.Style := bsSolid;
   FViewer.DrawBorder;
   FViewer.HTMLPaint(Canvas, Canvas.ClipRect);

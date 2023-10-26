@@ -12,13 +12,11 @@ object HTTPForm: THTTPForm
   Font.Name = 'MS Sans Serif'
   Font.Style = []
   Menu = MainMenu
-  OldCreateOrder = True
-  Position = poDefault
+  Position = poDesigned
   OnClose = FormClose
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnShow = FormShow
-  PixelsPerInch = 96
   TextHeight = 13
   object FrameBrowser: TFrameBrowser
     Left = 0
@@ -27,19 +25,20 @@ object HTTPForm: THTTPForm
     Height = 194
     CharSet = ANSI_CHARSET
     CodePage = 0
-    DefFontName = 'Times New Roman'
+    DefBackground = clWhite
+    DefFontColor = clBlack
     DefHotSpotColor = clNavy
-    DefPreFontName = 'Courier New'
     fvOptions = [fvMetaRefresh, fvOverLinksActive, fvPrintTableBackground, fvNoLinkHilite]
     HistoryIndex = 0
     HistoryMaxCount = 0
     NoSelect = False
-    PrintMarginBottom = 3
-    PrintMarginLeft = 2
-    PrintMarginRight = 2
-    PrintMarginTop = 2
-    PrintScale = 1
+    PrintMarginBottom = 3.000000000000000000
+    PrintMarginLeft = 2.000000000000000000
+    PrintMarginRight = 2.000000000000000000
+    PrintMarginTop = 2.000000000000000000
+    PrintScale = 1.000000000000000000
     QuirksMode = qmDetect
+    Text = 'Hello Serif<pre>Hello Monospace</pre>'
     OnBlankWindowRequest = BlankWindowRequest
     OnHistoryChange = FrameBrowserHistoryChange
     OnHotSpotTargetClick = HotSpotTargetClick
@@ -55,7 +54,11 @@ object HTTPForm: THTTPForm
     Align = alClient
     TabOrder = 0
     OnMouseMove = FrameBrowserMouseMove
+    Touch.InteractiveGestures = [igPan]
+    Touch.InteractiveGestureOptions = [igoPanSingleFingerHorizontal, igoPanSingleFingerVertical, igoPanInertia]
     OnGetPostRequestEx = FrameBrowserGetPostRequestEx
+    ExplicitWidth = 566
+    ExplicitHeight = 193
   end
   object CoolBar1: TCoolBar
     Left = 0
@@ -69,7 +72,7 @@ object HTTPForm: THTTPForm
         ImageIndex = -1
         MinHeight = 37
         MinWidth = 140
-        Width = 177
+        Width = 173
       end
       item
         Break = False
@@ -86,12 +89,13 @@ object HTTPForm: THTTPForm
         ImageIndex = -1
         MinHeight = 37
         MinWidth = 155
-        Width = 168
+        Width = 172
       end>
+    ExplicitWidth = 566
     object ToolBar2: TToolBar
       Left = 11
       Top = 0
-      Width = 164
+      Width = 160
       Height = 37
       AutoSize = True
       ButtonHeight = 37
@@ -135,7 +139,7 @@ object HTTPForm: THTTPForm
       end
     end
     object UrlComboBox: TComboBox
-      Left = 220
+      Left = 216
       Top = 8
       Width = 170
       Height = 21
@@ -151,9 +155,9 @@ object HTTPForm: THTTPForm
       OnKeyPress = URLComboBoxKeyPress
     end
     object Panel10: TPanel
-      Left = 407
+      Left = 403
       Top = 0
-      Width = 159
+      Width = 163
       Height = 37
       Align = alTop
       BevelOuter = bvNone
@@ -195,13 +199,14 @@ object HTTPForm: THTTPForm
         end
       end
       object Panel3: TPanel
-        Left = 131
+        Left = 135
         Top = 0
         Width = 28
         Height = 37
         Align = alRight
         BevelOuter = bvNone
         TabOrder = 1
+        ExplicitLeft = 131
         object Animate1: TAnimate
           Left = 3
           Top = 8
@@ -221,6 +226,8 @@ object HTTPForm: THTTPForm
     Align = alBottom
     BevelOuter = bvNone
     TabOrder = 2
+    ExplicitTop = 234
+    ExplicitWidth = 566
     object Gauge: TProgressBar
       Left = 420
       Top = 0
@@ -228,6 +235,7 @@ object HTTPForm: THTTPForm
       Height = 23
       Align = alRight
       TabOrder = 0
+      ExplicitLeft = 416
     end
     object StatusBarMain: TStatusBar
       Left = 0
@@ -245,6 +253,7 @@ object HTTPForm: THTTPForm
         item
           Width = 50
         end>
+      ExplicitWidth = 416
     end
   end
   object MainMenu: TMainMenu
@@ -376,13 +385,13 @@ object HTTPForm: THTTPForm
     Filter = 
       'html files|*.htm;*.html|image files|*.bmp;*.gif;*.jpg;*.jpeg;*.p' +
       'ng|text files|*.txt|all files|*.*'
-    Options = [ofHideReadOnly, ofPathMustExist, ofFileMustExist]
+    Options = [ofHideReadOnly, ofPathMustExist, ofFileMustExist, ofEnableSizing]
     Left = 168
     Top = 56
   end
   object SaveDialog: TSaveDialog
     Filter = 'All Files|*.*'
-    Options = [ofOverwritePrompt, ofHideReadOnly, ofPathMustExist, ofNoReadOnlyReturn]
+    Options = [ofOverwritePrompt, ofHideReadOnly, ofPathMustExist, ofNoReadOnlyReturn, ofEnableSizing]
     Left = 96
     Top = 56
   end
@@ -429,7 +438,7 @@ object HTTPForm: THTTPForm
     Left = 24
     Top = 120
     Bitmap = {
-      494C01010D0011009C0011001100FFFFFFFFFF10FFFFFFFFFFFFFFFF424D3600
+      494C01010D001100040011001100FFFFFFFFFF10FFFFFFFFFFFFFFFF424D3600
       0000000000003600000028000000440000004400000001002000000000004048
       0000000000000000000000000000000000000000000000000000000000000000
       0000000000000000000000000000000000000000000000000000000000000000

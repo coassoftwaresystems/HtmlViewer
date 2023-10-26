@@ -1,7 +1,7 @@
 {
-Version   11.9
+Version   11.10
 Copyright (c) 1995-2008 by L. David Baldwin
-Copyright (c) 2008-2018 by HtmlViewer Team
+Copyright (c) 2008-2023 by HtmlViewer Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -27,8 +27,8 @@ are covered by separate copyright notices located in those modules.
 unit DemoUnit;
 
 {$include ..\..\source\htmlcons.inc}
+
 { A program to demonstrate the THtmlViewer component }
-{$R 'fbHelpIndy10.res' 'Resources\Indy10\fbHelpIndy10.rc'}
 
 interface
 
@@ -38,8 +38,9 @@ uses
   System.UITypes,
 {$endif}
   SysUtils, Messages, Classes, Graphics, Controls, Forms, Dialogs,
-  ExtCtrls, Menus, Clipbrd, ComCtrls, StdCtrls, Fontdlg,
+  ExtCtrls, Menus, Clipbrd, ComCtrls, StdCtrls, Fontdlg, Math,
 {$ifdef LCL}
+  Types,
   LclIntf, LclType, PrintersDlgs, FPImage, HtmlMisc,
 {$else}
   Windows, ShellAPI, MPlayer,
@@ -74,6 +75,7 @@ uses
 {$else UseTNT}
   Submit,
 {$endif UseTNT}
+  HtmlDemoUtils,
   HtmlGlobals,
   HtmlBuffer,
   HtmlImages,
@@ -155,6 +157,7 @@ type
     procedure FontsClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure FormDropFiles(Sender: TObject; const FileNames: array of string);
     procedure FormShow(Sender: TObject);
     procedure FwdBackClick(Sender: TObject);
     procedure HistoryChange(Sender: TObject);
@@ -230,6 +233,9 @@ type
 {$else}
     procedure AppMessage(var Msg: TMsg; var Handled: Boolean);
 {$endif}
+{$if defined(LCL) or defined(Compiler32_Plus)}
+    procedure FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
+{$ifend}
   public
     { Public declarations }
   end;
@@ -253,12 +259,26 @@ uses
   System.UITypes;
 {$endif}
 
+{$if defined(LCL) or defined(Compiler32_Plus)}
+procedure TForm1.FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
+var
+  Info: string;
+begin
+  if sizeof(char) = 1 then
+    Info := 'Program uses single byte characters.'
+  else
+    Info := 'Program uses unicode characters.';
+  Info := Info + ' New PixelsPerInch = ' + IntToStr(PixelsPerInch);
+  Edit1.Text := Info;
+end;
+{$ifend}
+
 procedure TForm1.FormCreate(Sender: TObject);
 var
   I: Integer;
+  Info: string;
 begin
-  if Screen.Width <= 640 then
-    Position := poDefault; { keeps form on screen better }
+  BoundsRect := htGetNiceFormSize( Monitor, PixelsPerInch );
 
   OpenDialog.InitialDir := ExtractFilePath(ParamStr(0));
 
@@ -269,6 +289,11 @@ begin
     igoPanSingleFingerVertical, igoPanInertia];
   Viewer.Touch.InteractiveGestures := [igPan];
 {$endif}
+
+{$ifdef Compiler32_Plus}
+  OnAfterMonitorDpiChanged := FormAfterMonitorDpiChanged;
+{$endif}
+
   for I := 0 to MaxHistories - 1 do
   begin { create the MenuItems for the history list }
     Histories[I] := TMenuItem.Create(HistoryMenuItem);
@@ -280,16 +305,24 @@ begin
       Tag := I;
     end;
   end;
+
+  HintWindow := ThtHintWindow.Create(Self);
+  HintWindow.Color := $CCFFFF;
+
+  if sizeof(char) = 1 then
+    Info := 'Program uses single byte characters.'
+  else
+    Info := 'Program uses unicode characters.';
+{$if defined(LCL) or defined(Compiler22_Plus)}
+  Info := Info + ' PixelsPerInch = ' + IntToStr(Monitor.PixelsPerInch);
+  Edit1.Text := Info;
+{$ifend}
+  UpdateCaption;
+  ReloadButton.Enabled := Viewer.Text <> '';
+
 {$ifdef LCL}
 {$else}
   DragAcceptFiles(Handle, True);
-{$endif}
-  HintWindow := ThtHintWindow.Create(Self);
-  HintWindow.Color := $CCFFFF;
-  UpdateCaption;
-  ReloadButton.Enabled := Viewer.Text <> '';
-{$ifdef LCL}
-{$else}
   Application.OnMessage := AppMessage;
 {$endif}
 end;
@@ -315,14 +348,18 @@ begin
     end;
     Viewer.LoadFromFile(Viewer.HtmlExpandFilename(S));
   end
-  else
-    Viewer.LoadFromResource(HINSTANCE, 'XLeft1', HTMLType);
+//  else
+//    Viewer.LoadFromResource(HINSTANCE, 'XLeft1', HTMLType);
 end;
 
 procedure TForm1.OpenFileClick(Sender: TObject);
+var
+  TheSize: TSize;
 begin
-  if Viewer.CurrentFile <> '' then
-    OpenDialog.InitialDir := ExtractFilePath(Viewer.CurrentFile);
+  if (Viewer.CurrentFile <> '') and (Copy(Viewer.CurrentFile, 1, 9) <> 'source://') then
+    OpenDialog.InitialDir := ExtractFilePath(Viewer.CurrentFile)
+  else
+    OpenDialog.InitialDir := ExtractFilePath(ParamStr(0));
   OpenDialog.Filter := 'HTML Files (*.htm,*.html)|*.htm;*.html' +
     '|Text Files (*.txt)|*.txt' + '|All Files (*.*)|*.*';
   OpenDialog.FilterIndex := 1;
@@ -330,6 +367,7 @@ begin
   begin
     Update;
     Viewer.LoadFromFile(OpenDialog.Filename);
+    TheSize := Viewer.FullDisplaySize(Viewer.ClientWidth);
     UpdateCaption;
   end;
 end;
@@ -372,9 +410,7 @@ begin
   if (I <= 2) or (J > 0) then
   begin { apparently the URL is a filename }
     S := URL;
-    K := Pos(' ', S); { look for parameters }
-    if K = 0 then
-      K := Pos('?', S); { could be '?x,y' , etc }
+    K := Pos('?', S);  {look for parameters, could be '?x,y' , etc}
     if K > 0 then
     begin
       Params := Copy(S, K + 1, 255); { save any parameters }
@@ -383,7 +419,7 @@ begin
     else
       Params := '';
     S := (Sender as THTMLViewer).HtmlExpandFilename(S);
-    Ext := UpperCase(ExtractFileExt(S));
+    Ext := htUpperCase(ExtractFileExt(S));
     if Ext = '.WAV' then
     begin
       Handled := True;
@@ -392,24 +428,19 @@ begin
 {$endif}
     end
     else if Ext = '.EXE' then
-    begin
-      Handled := StartProcess(S, Params);
-    end
+      Handled := StartProcess(S, Params)
     else if (Ext = '.MID') or (Ext = '.AVI') then
       Handled := OpenDocument(S);
     { else ignore other extensions }
-    Edit1.Text := URL;
-    Exit;
-  end;
-
-  I := Pos('MAILTO:', uURL) + Pos('HTTP://', uURL) + Pos('HTTPS://', uURL);
-  if I > 0 then
+  end
+  else
   begin
-    Handled := OpenDocument(URL);
-    Exit;
+    I := Pos('MAILTO:', uURL) + Pos('HTTP://', uURL) + Pos('HTTPS://', uURL);
+    if I > 0 then
+      Handled := OpenDocument(URL);
   end;
 
-  Edit1.Text := URL; { other protocall }
+  Edit1.Text := URL; { other protocoll }
 end;
 
 procedure TForm1.ShowImagesClick(Sender: TObject);
@@ -431,7 +462,7 @@ begin
     if CurrentFile <> '' then
       ReLoad
     else
-      Text := Text;
+      ReText;
     Viewer.Realign;
     ReloadButton.Enabled := Text <> '';
     Viewer.SetFocus;
@@ -585,7 +616,7 @@ begin
     (Viewer.HistoryIndex < Viewer.History.Count - 1);
   RepaintButton.Enabled := Enabled and (Viewer.Text <> '');
   ReloadButton.Enabled := Enabled and (Viewer.Text <> '');
-  Print1.Enabled := Enabled and (Viewer.CurrentFile <> '');
+  Print1.Enabled := Enabled and (Viewer.Text <> '');
   Printpreview.Enabled := Print1.Enabled;
   Find1.Enabled := Print1.Enabled;
   SelectAllItem.Enabled := Print1.Enabled;
@@ -660,6 +691,12 @@ begin
     Viewer.LoadFromFile(S);
 {$endif}
   Message.Result := 0;
+end;
+
+procedure TForm1.FormDropFiles(Sender: TObject; const FileNames: array of string);
+begin
+  // Dropping File in LCL
+  Viewer.LoadFromFile(FileNames[0]);
 end;
 
 procedure TForm1.MediaPlayerNotify(Sender: TObject);
@@ -920,7 +957,8 @@ end;
 procedure TForm1.CloseAll;
 begin
   Timer1.Enabled := False;
-  HintWindow.ReleaseHandle;
+  if HintWindow <> nil then
+    HintWindow.ReleaseHandle;
   HintVisible := False;
 end;
 
@@ -1046,7 +1084,7 @@ begin
     Title := Viewer.DocumentTitle
   else if Viewer.URL <> '' then
     Title := Viewer.URL
-  else if Viewer.CurrentFile <> '' then
+  else if (Viewer.CurrentFile <> '') and (Copy(Viewer.CurrentFile, 1, 9) <> 'source://') then
     Title := Viewer.CurrentFile
   else
     Title := '';

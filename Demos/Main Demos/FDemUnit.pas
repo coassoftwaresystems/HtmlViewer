@@ -1,7 +1,7 @@
 {
-Version   11.9
+Version   11.10
 Copyright (c) 1995-2008 by L. David Baldwin
-Copyright (c) 2008-2018 by HtmlViewer Team
+Copyright (c) 2008-2023 by HtmlViewer Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -34,9 +34,9 @@ interface
 
 uses
   SysUtils, Messages, Classes, Graphics, Controls, Forms, Dialogs,
-  ExtCtrls, Menus, Clipbrd, ComCtrls, StdCtrls, Fontdlg,
+  ExtCtrls, Menus, Clipbrd, ComCtrls, StdCtrls, Fontdlg, Math,
 {$ifdef LCL}
-  LclIntf, LclType, PrintersDlgs, FPImage, HtmlMisc,
+  LclIntf, LclType, LMessages, PrintersDlgs, FPImage, HtmlMisc,
 {$else}
   Windows, ShellAPI, MPlayer,
   {$if CompilerVersion >= 15}
@@ -70,6 +70,7 @@ uses
 {$else UseTNT}
   Submit,
 {$endif UseTNT}
+  HtmlDemoUtils,
   HtmlGlobals,
   HtmlBuffer,
   URLSubs,
@@ -87,6 +88,8 @@ uses
 
 const
   MaxHistories = 6;  {size of History list}
+  wm_ShowParam = WM_USER + 100;
+
 
 type
 // Delphi 6 form editor fails with conditionals in form declaration:
@@ -109,7 +112,9 @@ type
     File1: TMenuItem;
     Find1: TMenuItem;
     FindDialog: TFindDialog;
-    Fonts: TMenuItem;
+    mmiParentColor: TMenuItem;
+    mmiParentFont: TMenuItem;
+    mmiDefaultFont: TMenuItem;
     FrameViewer: TFrameViewer;
     FwdButton: TButton;
     HistoryMenuItem: TMenuItem;
@@ -154,7 +159,8 @@ type
     procedure File1Click(Sender: TObject);
     procedure Find1Click(Sender: TObject);
     procedure FindDialogFind(Sender: TObject);
-    procedure FontsClick(Sender: TObject);
+    procedure FormDropFiles(Sender: TObject; const FileNames: array of string);
+    procedure mmiDefaultFontClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormShow(Sender: TObject);
@@ -213,6 +219,8 @@ type
     procedure mmiQuirksModeDetectClick(Sender: TObject);
     procedure mmiQuirksModeStandardsClick(Sender: TObject);
     procedure mmiQuirksModeQuirksClick(Sender: TObject);
+    procedure mmiParentFontClick(Sender: TObject);
+    procedure mmiParentColorClick(Sender: TObject);
   private
     { Private declarations }
     Histories: array[0..MaxHistories-1] of TMenuItem;
@@ -235,11 +243,15 @@ type
 {$endif}
     procedure UpdateCaption;
     procedure wmDropFiles(var Message: TMessage); message wm_DropFiles;
+    procedure wmShowParam(var Message: TMessage); message wm_ShowParam;
     procedure CloseAll;
 {$ifdef LCL}
 {$else}
     procedure AppMessage(var Msg: TMsg; var Handled: Boolean);
 {$endif}
+{$if defined(LCL) or defined(Compiler32_Plus)}
+    procedure FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
+{$ifend}
   protected
     procedure UpdateActions; override;
   public
@@ -264,19 +276,36 @@ uses
   {$ifend}
 {$endif}
 
+{$if defined(LCL) or defined(Compiler32_Plus)}
+procedure TForm1.FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
+var
+  Info: string;
+begin
+  if sizeof(char) = 1 then
+    Info := 'Program uses single byte characters.'
+  else
+    Info := 'Program uses unicode characters.';
+  Info := Info + ' New Form.PixelsPerInch = ' + IntToStr(PixelsPerInch);
+  Info := Info + ', Monitor.PixelsPerInch = ' + IntToStr(Monitor.PixelsPerInch);
+  Edit2.Text := Info;
+end;
+{$ifend}
+
 procedure TForm1.FormCreate(Sender: TObject);
 var
-  I: integer;
+  I: Integer;
+  Info: string;
 begin
-  Left := Left div 2;
-  Top := Top div 2;
-  Width := (Screen.Width * 8) div 10;
-  Height := (Screen.Height * 6) div 8;
+  BoundsRect := htGetNiceFormSize( Monitor, PixelsPerInch );
 
   FrameViewer.HistoryMaxCount := MaxHistories;  {defines size of history list}
 {$ifdef HasGestures}
   FrameViewer.Touch.InteractiveGestureOptions := [{igoPanSingleFingerHorizontal,} igoPanSingleFingerVertical, igoPanInertia];
   FrameViewer.Touch.InteractiveGestures := [igPan];
+{$endif}
+
+{$ifdef Compiler32_Plus}
+  OnAfterMonitorDpiChanged := FormAfterMonitorDpiChanged;
 {$endif}
 
   for I := 0 to MaxHistories-1 do
@@ -290,10 +319,6 @@ begin
       Tag := I;
     end;
   end;
-{$ifdef LCL}
-{$else}
-  DragAcceptFiles(Handle, True);
-{$endif}
   HintWindow := ThtHintWindow.Create(Self);
   HintWindow.Color := $CCFFFF;
 
@@ -304,44 +329,61 @@ begin
   TntLabel.Parent := InfoPanel;
 {$endif}
   if sizeof(char) = 1 then
-    Edit2.Text := 'Program uses single byte characters.'
+    Info := 'Program uses single byte characters.'
   else
-    Edit2.Text := 'Program uses unicode characters.';
+    Info := 'Program uses unicode characters.';
+{$if defined(LCL) or defined(Compiler22_Plus)}
+  Info := Info + ' Form.PixelsPerInch = ' + IntToStr(PixelsPerInch);
+  Info := Info + ', Monitor.PixelsPerInch = ' + IntToStr(Monitor.PixelsPerInch);
+  Edit2.Text := Info;
+{$ifend}
   UpdateCaption;
 
 {$ifdef LCL}
 {$else}
+  DragAcceptFiles(Handle, True);
   Application.OnMessage := AppMessage;
 {$endif}
 end;
 
 procedure TForm1.FormShow(Sender: TObject);
+begin
+  PostMessage(Handle, wm_ShowParam, 0, 0);
+end;
+
+procedure TForm1.wmShowParam(var Message: TMessage);
 var
-  S: string;
+  S: ThtString;
   I: integer;
 begin
-if (ParamCount >= 1) then
+  if (ParamCount >= 1) then
   begin            {Parameter is file to load}
-  S := CmdLine;
-  I := Pos('" ', S);
-  if I > 0 then
-    Delete(S, 1, I+1)  {delete EXE name in quotes}
-  else Delete(S, 1, Length(ParamStr(0)));  {in case no quote marks}
-  I := Pos('"', S);
-  while I > 0 do     {remove any quotes from parameter}
-    begin
-    Delete(S, I, 1);
+    S := CmdLine;
+    I := Pos('" ', S);
+    if I > 0 then
+      Delete(S, 1, I+1)  {delete EXE name in quotes}
+    else
+      Delete(S, 1, Length(ParamStr(0)));  {in case no quote marks}
     I := Pos('"', S);
+    while I > 0 do     {remove any quotes from parameter}
+    begin
+      Delete(S, I, 1);
+      I := Pos('"', S);
     end;
-  FrameViewer.LoadFromFile(HtmlToDos(Trim(S)));
+    S := HtmlToDos(Trim(S));
+    FrameViewer.LoadFromFile(S);
   end
-else if FileExists(ExtractFilePath(ParamStr(0))+'demo.htm') then
-  FrameViewer.LoadFromFile(ExtractFilePath(ParamStr(0))+'demo.htm');
+  else
+  begin
+    S := ExtractFilePath(ParamStr(0))+'demo.htm';
+    if FileExists(S) then
+      FrameViewer.LoadFromFile(S);
+  end;
 end;
 
 procedure TForm1.OpenClick(Sender: TObject);
 begin
-  if FrameViewer.CurrentFile <> '' then
+  if (FrameViewer.CurrentFile <> '') and (Copy(FrameViewer.CurrentFile, 1, 9) <> 'source://') then
     OpenDialog.InitialDir := ExtractFilePath(FrameViewer.CurrentFile)
   else
     OpenDialog.InitialDir := ExtractFilePath(ParamStr(0));
@@ -353,7 +395,7 @@ begin
   end;
 end;
 
-procedure TForm1.HotSpotTargetClick(Sender: TObject; const Target, URL: ThtString; var Handled: boolean);
+procedure TForm1.HotSpotTargetClick(Sender: TObject; const Target, URL: ThtString; var Handled: Boolean);
 {This routine handles what happens when a hot spot is clicked.  The assumption
  is made that DOS filenames are being used. .EXE, .WAV, .MID, and .AVI files are
  handled here, but other file types could be easily added.
@@ -366,8 +408,7 @@ const
 {$endif}
 var
   PC: array[0..255] of {$ifdef UNICODE} WideChar {$else} AnsiChar {$endif};
-  uURL, S, Params: ThtString;
-  Ext: string;
+  uURL, S, Params, Ext: ThtString;
   I, J, K: integer;
 begin
   Handled := False;
@@ -379,8 +420,7 @@ begin
   if (I <= 2) or (J > 0) then
   begin                      {apparently the URL is a filename}
     S := URL;
-    K := 0; //Pos(' ', S);     {look for parameters}
-    if K = 0 then K := Pos('?', S);  {could be '?x,y' , etc}
+    K := Pos('?', S);  {look for parameters, could be '?x,y' , etc}
     if K > 0 then
     begin
       Params := Copy(S, K+1, 255); {save any parameters}
@@ -397,24 +437,20 @@ begin
       sndPlaySound(StrPCopy(PC, S), snd_ASync);
 {$endif}
     end
-    else
-    if Ext = '.EXE' then
+    else if Ext = '.EXE' then
       Handled := StartProcess(S, Params)
     else if (Ext = '.MID') or (Ext = '.AVI') then
       Handled := OpenDocument(S);
     {else ignore other extensions}
-    Edit2.Text := URL;
-    Exit;
-  end;
-
-  I := Pos('MAILTO:', uURL) + Pos('HTTP://', uURL) + Pos('HTTPS://', uURL);
-  if I > 0 then
+  end
+  else
   begin
-    Handled := OpenDocument(URL);
-    Exit;
+    I := Pos('MAILTO:', uURL) + Pos('HTTP://', uURL) + Pos('HTTPS://', uURL);
+    if I > 0 then
+      Handled := OpenDocument(URL);
   end;
 
-  Edit2.Text := URL;   {other protocall}
+  Edit2.Text := URL;   {other protocol}
 end;
 
 procedure TForm1.HotSpotTargetCovered(Sender: TObject; const Target, URL: ThtString);
@@ -507,18 +543,19 @@ begin
     {Enable and caption the appropriate history menuitems}
     HistoryMenuItem.Visible := History.Count > 0;
     for I := 0 to MaxHistories-1 do
-      with Histories[I] do
-        if I < History.Count then
-        begin
-          Cap := History.Strings[I];
-          if TitleHistory[I] <> '' then
-            Cap := Cap + '--' + TitleHistory[I];
-          Caption := Cap;    {Cap limits string to 80 char}
-          Visible := True;
-          Checked := I = HistoryIndex;
-        end
-        else
-          Histories[I].Visible := False;
+      if Histories[I] <> nil then
+        with Histories[I] do
+          if I < History.Count then
+          begin
+            Cap := History.Strings[I];
+            if TitleHistory[I] <> '' then
+              Cap := Cap + '--' + TitleHistory[I];
+            Caption := Cap;    {Cap limits string to 80 char}
+            Visible := True;
+            Checked := I = HistoryIndex;
+          end
+          else
+            Histories[I].Visible := False;
     UpdateCaption();    {keep the caption updated}
     FrameViewer.SetFocus;
   end;
@@ -541,7 +578,7 @@ begin
   end;
 end;
 
-procedure TForm1.FontsClick(Sender: TObject);
+procedure TForm1.mmiDefaultFontClick(Sender: TObject);
 var
   FontForm: TFontForm;
 begin
@@ -561,12 +598,25 @@ begin
         FrameViewer.DefFontSize := FontSize;
         FrameViewer.DefHotSpotColor := HotSpotColor;
         FrameViewer.DefBackground := Background;
+        FrameViewer.ParentFont := False;
         ReloadClick(Self);    {reload to see how it looks}
       end;
     end;
   finally
     FontForm.Free;
   end;
+end;
+
+//-- BG ------------------------------------------------------- 10.12.2022 --
+procedure TForm1.mmiParentColorClick(Sender: TObject);
+begin
+  FrameViewer.ParentColor := not FrameViewer.ParentColor;
+end;
+
+//-- BG ------------------------------------------------------- 10.12.2022 --
+procedure TForm1.mmiParentFontClick(Sender: TObject);
+begin
+  FrameViewer.ParentFont := not FrameViewer.ParentFont;
 end;
 
 procedure TForm1.Print1Click(Sender: TObject);
@@ -652,6 +702,12 @@ begin
     FrameViewer.LoadFromFile(S);
 {$endif}
   Message.Result := 0;
+end;
+
+procedure TForm1.FormDropFiles(Sender: TObject; const FileNames: array of string);
+begin
+  // Dropping File in LCL
+  FrameViewer.LoadFromFile(FileNames[0]);
 end;
 
 procedure TForm1.CopyImagetoClipboardClick(Sender: TObject);
@@ -902,10 +958,11 @@ end;
 
 procedure TForm1.CloseAll;
 begin
-Timer1.Enabled := False;
-HintWindow.ReleaseHandle;
-HintVisible := False;
-TitleViewer := Nil;
+  Timer1.Enabled := False;
+  if HintWindow <> nil then
+    HintWindow.ReleaseHandle;
+  HintVisible := False;
+  TitleViewer := Nil;
 end;
 
 procedure TForm1.Timer1Timer(Sender: TObject);
@@ -1009,8 +1066,9 @@ begin
   end;
 end;
 
-procedure TForm1.ViewerPrintHTMLHeader(Sender: TObject;
-  HFViewer: THTMLViewer; NumPage: Integer; LastPage: boolean; var XL, XR: integer; var StopPrinting: Boolean);
+procedure TForm1.ViewerPrintHTMLHeader(Sender: TObject; HFViewer: THTMLViewer;
+  NumPage: Integer; LastPage: Boolean; var XL, XR: Integer;
+  var StopPrinting: Boolean);
 var
   S: ThtString;
 begin
@@ -1019,8 +1077,9 @@ begin
   HFViewer.Text := S;
 end;
 
-procedure TForm1.ViewerPrintHTMLFooter(Sender: TObject;
-  HFViewer: THTMLViewer; NumPage: Integer; LastPage: boolean; var XL, XR: integer; var StopPrinting: Boolean);
+procedure TForm1.ViewerPrintHTMLFooter(Sender: TObject; HFViewer: THTMLViewer;
+  NumPage: Integer; LastPage: Boolean; var XL, XR: Integer;
+  var StopPrinting: Boolean);
 var
   S: ThtString;
 begin
@@ -1039,7 +1098,7 @@ begin
     Title := Viewer.DocumentTitle
   else if Viewer.URL <> '' then
     Title := Viewer.URL
-  else if Viewer.CurrentFile <> '' then
+  else if (Viewer.CurrentFile <> '') and (Copy(Viewer.CurrentFile, 1, 9) <> 'source://') then
     Title := Viewer.CurrentFile
   else
     Title := '';
@@ -1089,6 +1148,10 @@ var
   QuirksModePanelCaption: string;
 begin
   ReloadButton.Enabled := FrameViewer.CurrentFile <> '';
+
+  // update parent mode menu items
+  mmiParentFont.Checked := FrameViewer.ParentFont;
+  mmiParentColor.Checked := FrameViewer.ParentColor;
 
   // update quirks mode panel and quirks mode menu items
 

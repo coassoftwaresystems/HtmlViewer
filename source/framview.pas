@@ -1,7 +1,7 @@
 {
 Version   11.10
 Copyright (c) 1995-2008 by L. David Baldwin
-Copyright (c) 2008-2022 by HtmlViewer Team
+Copyright (c) 2008-2023 by HtmlViewer Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -32,7 +32,7 @@ interface
 
 uses
 {$ifdef LCL}
-  LclIntf, LclType, HtmlMisc,
+  LclIntf, LclType, HtmlMisc, Forms,
 {$else}
   Windows,
 {$endif}
@@ -45,7 +45,7 @@ uses
   HtmlGlobals,
   HtmlBuffer,
   HtmlImages, 
-  Htmlsubs,
+  HTMLSubs,
   Htmlview,
   HtmlSymb,
   HTMLUn2,
@@ -88,6 +88,7 @@ type
     FProcessing, FViewerProcessing: Boolean;
     FViewerList: ThtStringList;
     FViewImages: Boolean;
+    FText: ThtString;
     //
     FOnBlankWindowRequest: TWindowRequestEvent;
     FOnFileBrowse: TFileBrowseEvent;
@@ -111,6 +112,9 @@ type
     procedure SetSelLength(Value: Integer);
     procedure SetSelStart(Value: Integer);
     procedure SetViewImages(Value: Boolean);
+    procedure SetText(const Value: ThtString);
+    procedure CMParentColorChanged(var Message: TMessage); message CM_PARENTCOLORCHANGED;
+    procedure CMParentFontChanged(var Message: TMessage); message CM_PARENTFONTCHANGED;
   protected
     FBaseEx: ThtString;
     FURL: ThtString;
@@ -157,6 +161,7 @@ type
     procedure EndProcessing; virtual;
     procedure HotSpotClick(Sender: TObject; const AnURL: ThtString;var Handled: Boolean); virtual; abstract;
     procedure HotSpotCovered(Sender: TObject; const SRC: ThtString); virtual; abstract;
+    procedure Loaded; override;
     procedure LoadFromStringInternal(const Text, Name, Dest: ThtString);
     procedure SetActiveColor(const Value: TColor); override;
     procedure SetCharset(const Value: TFontCharset); override;
@@ -204,6 +209,11 @@ type
     procedure SetQuirksMode(const AValue: THtQuirksMode); override;
     procedure SetVisitedColor(const Value: TColor); override;
     procedure SetVisitedMaxCount(const Value: Integer); override;
+    procedure ScaleChanged; override;
+    procedure StyleChanged; override;
+{$ifdef DEBUG}
+    procedure SetName(const NewName: TComponentName); override;
+{$endif}
 {$ifdef has_StyleElements}
     procedure UpdateStyleElements; override;
 {$endif}
@@ -236,6 +246,7 @@ type
     procedure GoFwd;
     procedure LoadFromFile(const Name: ThtString); virtual; abstract;
     procedure LoadFromString(const Text: ThtString; const Name: ThtString = ''; const Dest: ThtString = '');
+    procedure Retext;
     procedure Reload;
     procedure Repaint; override;
     procedure SelectAll;
@@ -286,6 +297,7 @@ type
     property PrintMaxHPages;
     property PrintScale;
     property QuirksMode;
+    property Text: ThtString read FText write SetText;
     property ViewImages: Boolean read FViewImages write SetViewImages default True;
     property VisitedMaxCount;
     //
@@ -331,6 +343,9 @@ type
     property Anchors;
     property Enabled;
     property Height default 150;
+    property ParentColor default False;
+    property ParentFont default False;
+    property ParentShowHint;
     property PopupMenu;
     property ShowHint;
     property TabOrder;
@@ -358,7 +373,8 @@ type
   private
     FMasterSet: TFrameSetBase; {Points to top (master) TFrameSetBase}
     FOwner: TSubFrameSetBase;
-    FQuirksMode : THtQuirksMode;
+    FQuirksMode: THtQuirksMode;
+    function GetPixelsPerInch: Integer;
   protected
     UnLoaded: Boolean;
     LocalCharSet: TFontCharset;
@@ -380,7 +396,8 @@ type
     procedure InitializeDimensions(X, Y, Wid, Ht: Integer); virtual; abstract;
     property LOwner: TSubFrameSetBase read FOwner;
     property MasterSet: TFrameSetBase read FMasterSet; {Points to top (master) TFrameSetBase}
-    property QuirksMode : THtQuirksMode read FQuirksMode write SetQuirksMode;
+    property QuirksMode: THtQuirksMode read FQuirksMode write SetQuirksMode;
+    property PixelsPerInch: Integer read GetPixelsPerInch;
   end;
 
 
@@ -794,7 +811,7 @@ begin
     NextFile := Source
   else
     NextFile := MasterSet.FrameViewer.HTMLExpandFilename(URL);
-  if not MasterSet.RequestEvent and not FileExists(NextFile) then
+  if not MasterSet.RequestEvent and not htFileExists(NextFile) then
     Exit;
   if not Assigned(RefreshTimer) then
     RefreshTimer := TTimer.Create(Self);
@@ -954,10 +971,10 @@ begin
       begin
         EV := PEV^;
       end
-      else if copy(Source, 1, 9) = 'source://' then
+      else if Copy(Source, 1, 9) = 'source://' then
       begin
         EV.NewName := Source;
-        Src := copy(Source, 10, MaxInt);
+        Src := Copy(Source, 10, MaxInt);
         EV.Doc := TBuffer.Create(Src, EV.NewName);
       end
       else
@@ -965,7 +982,7 @@ begin
         if not MasterSet.TriggerEvent(Source, EV.NewName, EV.Doc) then
         begin
           EV.NewName := MasterSet.FrameViewer.HTMLExpandFilename(Source);
-          if FileExists(Ev.NewName) then
+          if htFileExists(Ev.NewName) then
           begin
             Stream := TFileStream.Create( htStringToString(EV.NewName), fmOpenRead or fmShareDenyWrite);
             try
@@ -1015,8 +1032,10 @@ begin
             Ext := htLowerCase(ExtractFileExt(Source));
             if Length(Ext) > 0 then
               Delete(Ext, 1, 1);
-            if copy(Ev.NewName, 1, 9) <> 'source://' then
-              ft := FileExt2DocType(Ext);
+            if Copy(Ev.NewName, 1, 9) <> 'source://' then
+              ft := FileExt2DocType(Ext)
+            else if ft = OtherType then
+              ft := HTMLType;
             Viewer.LoadFromDocument(EV.Doc, Source, ft);
             Viewer.PositionTo(Destination);
           end
@@ -1057,6 +1076,7 @@ var
   Upper, Lower: Boolean;
   EV: EventRec;
   ft: THtmlFileType;
+  Src: ThtString;
 
   procedure DoError;
   begin
@@ -1077,6 +1097,18 @@ begin
     else if Assigned(Viewer) then
     begin
       Viewer.Base := MasterSet.FBase;
+{$ifdef Compiler31_Plus}
+      // If compiled with Delphi and we started on a monitor <> 96 DPI and we move
+      // to a 96 DPI monitor for the first time the viewer is not automatically
+      // scaled to 96 DPI:
+      if Viewer.PixelsPerInch <> PixelsPerInch then
+        Viewer.ScaleForPPI(PixelsPerInch);
+{$endif}
+{$ifdef LCL}
+      if Application.Scaled and Viewer.ParentForm.Scaled then
+        if Viewer.PixelsPerInch <> PixelsPerInch then
+          Viewer.AutoAdjustLayout(lapAutoAdjustForDPI, Viewer.PixelsPerInch, PixelsPerInch, 0, 0);
+{$endif}
       ft := GetFileType(Source);
       case ft of
         ImgType,
@@ -1093,8 +1125,16 @@ begin
               Viewer.LoadFromDocument(EV.Doc, '')
             else
               Viewer.LoadFromFile(EV.NewName, ft)
+          else if Copy(Source, 1, 9) = 'source://' then
+          begin
+            EV.NewName := Source;
+            Src := Copy(Source, 10, MaxInt);
+            EV.Doc := TBuffer.Create(Src, EV.NewName);
+            Viewer.LoadFromDocument(EV.Doc, '');
+          end
           else
             Viewer.LoadFromFile(Source, ft);
+
           if APosition < 0 then
             Viewer.Position := ViewerPosition
           else
@@ -1176,7 +1216,7 @@ begin
     if not MasterSet.TriggerEvent(Source, EV.NewName, EV.Doc) then
     begin
       EV.NewName := MasterSet.FrameViewer.HTMLExpandFilename(Source);
-      if FileExists(Ev.NewName) then
+      if htFileExists(Ev.NewName) then
       begin
         Stream := TFileStream.Create( htStringToString(EV.NewName), fmOpenRead or fmShareDenyWrite);
         try
@@ -1521,13 +1561,15 @@ end;
 constructor TSubFrameSetBase.CreateIt(AOwner: TComponent; Master: TFrameSetBase);
 begin
   inherited Create(AOwner);
-  QuirksMode := Master.QuirksMode;
   FMasterSet := Master;
   if AOwner is TFrameBase then
     LocalCodePage := TFrameBase(AOwner).LocalCodePage;
-  OuterBorder := 0; {no border for subframesets}
   if Self <> Master then
+  begin
     BorderSize := Master.BorderSize;
+    QuirksMode := Master.QuirksMode;
+  end;
+  OuterBorder := 0; {no border for subframesets}
   First := True;
   List := TFrameBaseList.Create;
   OnResize := CalcSizes;
@@ -1613,10 +1655,16 @@ var
     end;
 
   begin
+{$ifdef DEBUG}
+    // For debugging we name our internal components.
+    // So we cannot use the name to control reading.
+    S := T.Name;
+{$else}
     if Name = '' then
       S := T.Name
     else
       Exit;
+{$endif}
     I := 1; DimCount := 0;
     repeat
       Inc(DimCount);
@@ -2171,7 +2219,7 @@ end;
 procedure TSubFrameSetBase.SetRefreshTimer;
 begin
   NextFile := HTMLToDos(FRefreshURL);
-  if not FileExists(NextFile) then
+  if not htFileExists(NextFile) then
     Exit;
   if not Assigned(RefreshTimer) then
     RefreshTimer := TTimer.Create(Self);
@@ -2202,6 +2250,13 @@ constructor TFrameSetBase.Create(AOwner: TComponent);
 begin
   inherited CreateIt(AOwner, Self);
   FFrameViewer := AOwner as TFvBase;
+{$ifdef DEBUG}
+  {$if defined(LCL) or defined(Compiler22_Plus)}
+  Name := FFrameViewer.Name + '_FrameSetBase' + IntToHex(Integer(Self));
+  {$else}
+  Name := FFrameViewer.Name + '_FrameSetBase' + IntToHex(Integer(Self), 8);
+  {$ifend}
+{$endif}
   LocalCodePage := FrameViewer.CodePage;
   if fvNoBorder in FrameViewer.fvOptions then
     BorderSize := 0
@@ -2425,6 +2480,9 @@ var
 begin
   Clear;
   NestLevel := 0;
+  if not htFileExists(FName) then
+    Exit;
+
   ft := HTMLType;
   if not MasterSet.RequestEvent then
     ft := GetFileType(FName);
@@ -2610,6 +2668,8 @@ begin
   inherited Create(AOwner);
   Height := 150;
   Width := 150;
+  ParentColor := False;
+  ParentFont := False;
   ProcessList := TList.Create;
   FLinkAttributes := ThtStringList.Create;
   FViewImages := True;
@@ -2740,24 +2800,14 @@ end;
 procedure TFrameViewer.LoadFromFile(const FileName: ThtString);
 var
   Name, Dest: ThtString;
-{$ifdef FPC}
-  ShortName: ThtString;
-{$endif}
 begin
   if Processing then
-    exit;
+    Exit;
+
   SplitDest(FileName, Name, Dest);
-  if not FileExists(Name) then
-  begin
-{$ifdef FPC}
-    // BG, 24.04.2014: workaround for non ansi file names:
-    ShortName := ExtractShortPathName(UTF8Decode(Name));
-    if FileExists(ShortName) then
-      Name := ShortName
-    else
-{$endif}
+  if not htFileExists(Name) then
     raise(EhtLoadError.Create('Can''t locate file: ' + htStringToString(Name) ));
-  end;
+
   LoadFromFileInternal(Name, Dest);
 end;
 
@@ -2846,7 +2896,7 @@ begin
   begin
     FrameTarget := (CurFrameSet.FrameNames.Objects[I] as TViewerFrameBase);
 
-    if not FileExists(Name) and not Assigned(OnStreamRequest) then
+    if not htFileExists(Name) and not Assigned(OnStreamRequest) then
       raise EhtLoadError.CreateFmt('Can''t locate ''%s''.', [Name]);
 
     BeginProcessing;
@@ -2889,8 +2939,27 @@ begin
   BeginProcessing;
   try
     ProcessList.Clear;
-    CurFrameSet.UnloadFiles;
-    CurFrameSet.ReloadFiles(-1);
+    if CurFrameSet.List.Count = 0 then
+      LoadFromStringInternal( FText, '', '' )
+    else
+    begin
+      CurFrameSet.UnloadFiles;
+      CurFrameSet.ReloadFiles(-1);
+    end;
+    CheckVisitedLinks;
+  finally
+    EndProcessing;
+  end;
+end;
+
+procedure TFVBase.Retext;
+begin
+  BeginProcessing;
+  try
+//    ProcessList.Clear;
+//    CurFrameSet.UnloadFiles;
+//    CurFrameSet.ReloadFiles(-1);
+    Text := Text;
     CheckVisitedLinks;
   finally
     EndProcessing;
@@ -3452,6 +3521,29 @@ begin
     OnHistoryChange(Self);
 end;
 
+//-- BG ------------------------------------------------------- 10.12.2022 --
+procedure TFVBase.CMParentColorChanged(var Message: TMessage);
+var
+  I: Integer;
+begin
+  if FInCMParentColorChanged = 0 then // in FPC inherited produces recursive calls to CMParentColorChanged when ParentColor changed to true
+    for I := 0 to GetCurViewerCount - 1 do
+      CurViewer[I].ParentColor := ParentColor;
+
+  inherited;
+end;
+
+//-- BG ------------------------------------------------------- 10.12.2022 --
+procedure TFVBase.CMParentFontChanged(var Message: TMessage);
+var
+  I: Integer;
+begin
+  for I := 0 to GetCurViewerCount - 1 do
+    CurViewer[I].ParentFont := ParentFont;
+
+  inherited;
+end;
+
 procedure TFVBase.SetOnProgress(const Handler: ThtProgressEvent);
 var
   I: Integer;
@@ -3671,6 +3763,13 @@ end;
 function TFVBase.CreateViewer(Owner: THtmlFrameBase): THtmlViewer;
 begin
   Result := GetViewerClass.CreateCopy(Owner, Self); {the Viewer for the frame}
+{$ifdef DEBUG}
+  {$if defined(LCL) or defined(Compiler22_Plus)}
+  Result.Name := Name + '_Viewer' + IntToHex(Integer(Result));
+  {$else}
+  Result.Name := Name + '_Viewer' + IntToHex(Integer(Result), 8);
+  {$ifend}
+{$endif}
   Result.ViewImages := ViewImages;
   Result.SetImageCache(FImageCache);
   Result.HtOptions := FvOptionsToHtOptions(FOptions, Result.HtOptions);
@@ -3872,6 +3971,18 @@ begin
       CurViewer[I].LoadCursor := Value;
   end;
 end;
+
+{$ifdef DEBUG}
+procedure TFVBase.SetName(const NewName: TComponentName);
+begin
+  inherited;
+  {$if defined(LCL) or defined(Compiler22_Plus)}
+  FCurFrameSet.Name := NewName + '_CurFrameSet' + IntToHex(Integer(FCurFrameSet));
+  {$else}
+  FCurFrameSet.Name := NewName + '_CurFrameSet' + IntToHex(Integer(FCurFrameSet), 8);
+  {$ifend}
+end;
+{$endif}
 
 {----------------TFVBase.SetNoSelect}
 
@@ -4167,6 +4278,12 @@ begin
   end;
 end;
 
+procedure TFVBase.StyleChanged;
+begin
+  inherited;
+  // abstract method and we have nothing to here.
+end;
+
 procedure TFVBase.SetDefBackground(const Value: TColor);
 var
   I: Integer;
@@ -4176,7 +4293,9 @@ begin
     inherited;
     for I := 0 to GetCurViewerCount - 1 do
       CurViewer[I].DefBackground := Value;
-    Color := Value;
+
+    if not ParentColor then
+      Color := Value;
   end;
 end;
 
@@ -4395,6 +4514,14 @@ begin
     AViewer.SelStart := Value;
 end;
 
+procedure TFVBase.SetText(const Value: ThtString);
+begin
+  if csLoading in ComponentState then
+    FText := Value
+  else
+    LoadFromString(Value);
+end;
+
 procedure TFVBase.SetCharset(const Value: TFontCharset);
 var
   I: Integer;
@@ -4522,14 +4649,15 @@ var
   AViewer: THtmlViewer;
 begin
   AViewer := GetActiveViewer;
-  if Assigned(AViewer) and AViewer.CanFocus then
-  try
-    AViewer.SetFocus;
-  except {just in case}
-    inherited SetFocus;
-  end
-  else
-    inherited SetFocus;
+  if Showing then
+    if Assigned(AViewer) and AViewer.Showing and AViewer.CanFocus then
+      try
+        AViewer.SetFocus;
+      except {just in case}
+        inherited SetFocus;
+      end
+    else
+      inherited SetFocus;
 end;
 
 {----------------TFVBase.SetProcessing}
@@ -4640,6 +4768,16 @@ begin
     AViewer.CopyToClipboard;
 end;
 
+//-- BG ------------------------------------------------------- 03.10.2022 --
+procedure TFVBase.ScaleChanged;
+begin
+  inherited;
+
+  // while loading we will set the Text in Loaded;
+  if not(csLoading in ComponentState) then
+    Reload;
+end;
+
 procedure TFVBase.SelectAll;
 var
   AViewer: THtmlViewer;
@@ -4669,6 +4807,13 @@ begin
     Result := False;
 end;
 
+procedure TFVBase.Loaded;
+begin
+  inherited;
+
+  if Length(FText) <> 0 then
+    LoadFromString(FText);
+end;
 
 //-- BG ---------------------------------------------------------- 23.09.2010 --
 procedure TFVBase.LoadFromString(const Text, Name, Dest: ThtString);
@@ -4732,6 +4877,7 @@ begin
     AddVisitedLink(S + Dest);
     CheckVisitedLinks;
   finally
+    FText := Text;
     EndProcessing;
   end;
 end;
@@ -4763,9 +4909,15 @@ begin
       FMasterSet.FFrameViewer.Reload;
 end;
 
+//-- BG ---------------------------------------------------------- 03.10.2022 --
+function TFrameBase.GetPixelsPerInch: Integer;
+begin
+  Result := FMasterSet.FrameViewer.PixelsPerInch;
+end;
+
 procedure TFrameBase.SetQuirksMode(const AValue: THtQuirksMode);
 begin
-  Self.FQuirksMode := AValue;
+  FQuirksMode := AValue;
 end;
 
 {$ifdef UseGenerics}

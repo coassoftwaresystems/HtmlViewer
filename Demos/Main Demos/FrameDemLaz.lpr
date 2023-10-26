@@ -1,8 +1,8 @@
 {
-Version   11.7
+Version   11.10
 Copyright (c) 1995-2008 by L. David Baldwin
 Copyright (c) 2008-2010 by HtmlViewer Team
-Copyright (c) 2011-2015 by Bernd Gabriel
+Copyright (c) 2011-2023 by Bernd Gabriel
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -39,12 +39,14 @@ uses
   Htmlabt in 'Htmlabt.pas' {AboutBox},
   ImgForm in 'ImgForm.pas' {ImageForm},
   Submit in 'Submit.pas' {SubmitForm},
-  FDemUnit in 'FDemUnit.PAS' {Form1};
+  FDemUnit in 'FDemUnit.PAS';
 
 {$R *.res}
 
 begin
+  Application.Title:='';
   Application.Initialize;
+  Application.Scaled:=True;
   Application.CreateForm(TForm1, Form1);
   Application.Run;
 end.

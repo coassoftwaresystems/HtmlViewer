@@ -1,7 +1,7 @@
 {
 Version   11.7
 Copyright (c) 1995-2008 by L. David Baldwin
-Copyright (c) 2008-2016 by HtmlViewer Team
+Copyright (c) 2008-2023 by HtmlViewer Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -55,10 +55,10 @@ uses
     {$endif}
   {$ifend}
   {$IF CompilerVersion >= 30}
-      System.ImageList,
+//      System.ImageList,
   {$IFEND}
 {$endif}
-  Messages, SysUtils, Classes, Graphics, Controls, Forms, Dialogs,
+  Messages, SysUtils, Classes, Graphics, Controls, Forms, Dialogs, Math, ImageList,
   Menus, StdCtrls, Buttons, ExtCtrls, IniFiles, ImgList, ComCtrls, ToolWin,
 {$ifndef MultiMediaMissing}
   mmSystem,
@@ -74,8 +74,15 @@ uses
   BegaZoom,
   BegaHtmlPrintPreviewForm,
 {$endif UseOldPreviewForm}
-  HtmlGlobals, HTMLUn2, HTMLSubs, URLSubs, UrlConn,
-  HtmlView, FramView, FramBrwz,
+  HtmlDemoUtils,
+  HtmlGlobals,
+  HTMLUn2,
+  HTMLSubs,
+  URLSubs,
+  UrlConn,
+  HtmlView,
+  FramView,
+  FramBrwz,
 {$ifdef UseIndy10}
   UrlConId10,
 {$endif}
@@ -383,11 +390,15 @@ end;
 {----------------THTTPForm.FormCreate}
 procedure THTTPForm.FormCreate(Sender: TObject);
 var
-  I: integer;
+  DX, DY: Double;
+  I: Integer;
+  Styles: TStringList;
 {$ifdef UseVCLStyles}
   m : TMenuItem;
 {$endif}
 begin
+  BoundsRect := htGetNiceFormSize( Monitor, PixelsPerInch );
+
   OpenDialog.Filter := htStringToString(GetFileMask);
   FMetaInfo := TStringList.Create;
 {$ifdef has_StyleElements}
@@ -397,18 +408,6 @@ begin
   FrameBrowser.Touch.InteractiveGestureOptions := [igoPanSingleFingerHorizontal, igoPanSingleFingerVertical, igoPanInertia];
   FrameBrowser.Touch.InteractiveGestures := [igPan];
 {$endif}
-  Top := Top div 2;
-  if Screen.Width <= 800 then   {make window fit appropriately}
-  begin
-    Left := Left div 2;
-    Width := (Screen.Width * 9) div 10;
-    Height := (Screen.Height * 7) div 8;
-  end
-  else
-  begin
-    Width := 850;
-    Height := 600;
-  end;
 
   Cache := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)+'Cache');
   DiskCache := ThtDiskCache.Create(Cache);
@@ -430,33 +429,29 @@ begin
   VCLStyles1 := TMenuItem.Create(Options1);
   VCLStyles1.Caption := '&VCL Styles';
   Options1.Add(VCLStyles1);
-  if   TStyleManager.Enabled then begin
-    for i := Low(TStyleManager.StyleNames) to High(TStyleManager.StyleNames) do begin
-      m := TMenuItem.Create(VCLStyles1);
-      m.Caption := TStyleManager.StyleNames[i];
-      m.Tag := i;
-      m.OnClick := VCLStyleClick;
-      m.RadioItem := True;
-      VCLStyles1.Add(m);
+  if TStyleManager.Enabled then
+  begin
+    Styles := TStringList.Create(dupIgnore, True, False);
+    try
+      for i := Low(TStyleManager.StyleNames) to High(TStyleManager.StyleNames) do
+        Styles.AddObject( TStyleManager.StyleNames[i], TObject(i) );
+
+      for i := 0 to Styles.Count - 1 do
+      begin
+        m := TMenuItem.Create(VCLStyles1);
+        m.Caption := Styles.Strings[i];
+        m.Tag := Integer(Styles.Objects[i]);
+        m.OnClick := VCLStyleClick;
+        m.RadioItem := True;
+        VCLStyles1.Add(m);
+      end;
+    finally
+      Styles.Free;
     end;
   end;
 {$endif}
 
   AStream := TMemoryStream.Create;
-
-  FrameBrowser.HistoryMaxCount := MaxHistories;  {defines size of history list}
-
-  for I := 0 to MaxHistories-1 do
-  begin      {create the MenuItems for the history list}
-    Histories[I] := TMenuItem.Create(HistoryMenuItem);
-    HistoryMenuItem.Insert(I, Histories[I]);
-    with Histories[I] do
-    begin
-      Visible := False;
-      OnClick := HistoryClick;
-      Tag := I;
-    end;
-  end;
 
 {$ifdef LCL}
   // OnClick also handles clicks on dropdown button.
@@ -486,6 +481,21 @@ begin
   HttpConnector.ProxyPort := '80';
   HttpConnector.CookieFile := Cache + CookieFile;
 
+  // needs HttpConnector <> nil:
+  FrameBrowser.HistoryMaxCount := MaxHistories;  {defines size of history list}
+
+  for I := 0 to MaxHistories-1 do
+  begin      {create the MenuItems for the history list}
+    Histories[I] := TMenuItem.Create(HistoryMenuItem);
+    HistoryMenuItem.Insert(I, Histories[I]);
+    with Histories[I] do
+    begin
+      Visible := False;
+      OnClick := HistoryClick;
+      Tag := I;
+    end;
+  end;
+
   FIniFilename := ChangeFileExt(Application.Exename, '.ini');
   LoadIniFile;
 
@@ -510,14 +520,15 @@ var
   IniFile: TIniFile;
   SL: TStringList;
   I, J, LTop, LLeft, LWidth, LHeight: Integer;
-
+  Rect: TRect;
 begin
   IniFile := TIniFile.Create(FIniFileName);
   try
-    Top    := IniFile.ReadInteger('HTTPForm', 'Top'   , Top   );
-    Left   := IniFile.ReadInteger('HTTPForm', 'Left'  , Left  );
-    Width  := IniFile.ReadInteger('HTTPForm', 'Width' , Width );
-    Height := IniFile.ReadInteger('HTTPForm', 'Height', Height);
+    Rect.Top    := IniFile.ReadInteger('HTTPForm', 'Top'           , Top     );
+    Rect.Left   := IniFile.ReadInteger('HTTPForm', 'Left'          , Left    );
+    Rect.Width  := IniFile.ReadInteger('HTTPForm', 'Width'         , Width   );
+    Rect.Height := IniFile.ReadInteger('HTTPForm', 'Height'        , Height  );
+    BoundsRect  := Rect;
 
     GetImagesAsyncly.Checked := IniFile.ReadBool('Options', 'GetImagesAsyncly', GetImagesAsyncly.Checked);
 
@@ -573,16 +584,16 @@ var
 begin       {save only if this is the first instance}
   IniFile := TIniFile.Create(FIniFileName);
   try
-    IniFile.WriteInteger('HTTPForm', 'Top'   , Top);
-    IniFile.WriteInteger('HTTPForm', 'Left'  , Left);
-    IniFile.WriteInteger('HTTPForm', 'Width' , Width);
-    IniFile.WriteInteger('HTTPForm', 'Height', Height);
+    IniFile.WriteInteger('HTTPForm', 'Top'          , Top           );
+    IniFile.WriteInteger('HTTPForm', 'Left'         , Left          );
+    IniFile.WriteInteger('HTTPForm', 'Width'        , Width         );
+    IniFile.WriteInteger('HTTPForm', 'Height'       , Height        );
 
     IniFile.WriteBool('Options', 'GetImagesAsyncly', GetImagesAsyncly.Checked);
 
-    IniFile.WriteInteger('LogForm', 'Top'   , LogForm.Top);
-    IniFile.WriteInteger('LogForm', 'Left'  , LogForm.Left);
-    IniFile.WriteInteger('LogForm', 'Width' , LogForm.Width);
+    IniFile.WriteInteger('LogForm', 'Top'   , LogForm.Top   );
+    IniFile.WriteInteger('LogForm', 'Left'  , LogForm.Left  );
+    IniFile.WriteInteger('LogForm', 'Width' , LogForm.Width );
     IniFile.WriteInteger('LogForm', 'Height', LogForm.Height);
 
     IniFile.WriteBool('LogForm', 'ShowLogWindow' , ShowLog.Checked  );
@@ -618,7 +629,7 @@ begin
     Result := Viewer.DocumentTitle
   else if Viewer.URL <> '' then
     Result := Viewer.URL
-  else if Viewer.CurrentFile <> '' then
+  else if (Viewer.CurrentFile <> '') and (Copy(Viewer.CurrentFile, 1, 9) <> 'source://') then
     Result := Viewer.CurrentFile
   else
     Result := '';
@@ -631,7 +642,7 @@ begin
     Result := Viewer.DocumentTitle
   else if Viewer.URL <> '' then
     Result := Viewer.URL
-  else if Viewer.CurrentFile <> '' then
+  else if (Viewer.CurrentFile <> '') and (Copy(Viewer.CurrentFile, 1, 9) <> 'source://') then
     Result := Viewer.CurrentFile
   else
     Result := '';
@@ -639,10 +650,12 @@ end;
 
 procedure THTTPForm.UpdateCaption;
 var
-  Title, Cap: ThtString;
+  Title, Version, Cap: ThtString;
 begin
   Title := DocumentTitle(FrameBrowser);
-  Cap := 'FrameBrowser/' + HttpConnector.Version + ' Demo';
+  if HttpConnector <> nil then
+    Version := HttpConnector.Version;
+  Cap := 'FrameBrowser/' + Version + ' Demo';
   if Title <> '' then
     Cap := Cap + ' - ' + Title;
 {$ifdef LCL}
@@ -995,18 +1008,19 @@ begin
   {Enable and caption the appropriate history menuitems}
     HistoryMenuItem.Visible := History.Count > 0;
     for I := 0 to MaxHistories-1 do
-      with Histories[I] do
-        if I < History.Count then
-        Begin
-          Cap := History.Strings[I];  {keep local file name}
-          if TitleHistory[I] <> '' then
-            Cap := Cap + '--' + TitleHistory[I];
-          Caption := copy(Cap, 1, 80);
-          Visible := True;
-          Checked := I = HistoryIndex;
-        end
-        else
-          Histories[I].Visible := False;
+      if Histories[I] <> nil then
+        with Histories[I] do
+          if I < History.Count then
+          begin
+            Cap := History.Strings[I];  {keep local file name}
+            if TitleHistory[I] <> '' then
+              Cap := Cap + '--' + TitleHistory[I];
+            Caption := copy(Cap, 1, 80);
+            Visible := True;
+            Checked := I = HistoryIndex;
+          end
+          else
+            Histories[I].Visible := False;
     UpdateCaption;
     FrameBrowser.SetFocus;
   end;
@@ -1197,16 +1211,12 @@ procedure THTTPForm.wmDropFiles(var Message: TMessage);
 {handles dragging of file into browser window}
 var
   S: string;
-  Count: integer;
 begin
-  Count := DragQueryFile(Message.WParam, 0, @S[1], 200);
-  SetLength(S, Count);
+  SetLength(S, 1024);
+  SetLength(S, DragQueryFile(Message.WParam, 0, @S[1], 1024));
   DragFinish(Message.WParam);
-  if Count >0 then
-  begin
-    LoadURL('file:///'+DosToHTMLNoSharp(S));
-    CurrentLocalFile := FrameBrowser.CurrentFile;
-  end;
+  LoadURL('file:///'+DosToHTMLNoSharp(S));
+  CurrentLocalFile := FrameBrowser.CurrentFile;
   Message.Result := 0;
 end;
 {$endif}
@@ -1630,11 +1640,14 @@ var
   Viewer: THtmlViewer;
   Url: String;
 begin
+  if csLoading in ComponentState then
+    Exit;
+
   if Sender is THtmlViewer then
   begin
     Exit;
-    Viewer := Sender as THtmlViewer;
-    Url := Viewer.CurrentFile;
+//    Viewer := Sender as THtmlViewer;
+//    Url := Viewer.CurrentFile;
   end
   else if Sender is TFrameBrowser then
   begin
@@ -1653,12 +1666,12 @@ begin
       BackButton.Enabled := FrameBrowser.BackButtonEnabled;
       ReloadButton.Enabled := FrameBrowser.CurrentFile <> '';
       CheckEnableControls;
-    end;
+    end
   end
   else
     Exit;
 
-  if LogForm.LogActive[laDiag] then
+  if (LogForm <> nil) and (LogForm.LogActive[laDiag]) then
     if ProcessingOn then
       LogForm.Log(What[ProcessingOn, Viewer <> nil] + ' Processing: ' + Url)
     else
