@@ -24,7 +24,7 @@ package FrameViewer;
 {$IMAGEBASE $400000}
 {$DEFINE DEBUG}
 {$ENDIF IMPLICITBUILDING}
-{$LIBSUFFIX '240'}
+{$LIBSUFFIX '290'}
 {$RUNONLY}
 {$IMPLICITBUILD OFF}
 
@@ -73,3 +73,4 @@ contains
   vwPrint in '..\source\vwPrint.pas';
 
 end.
+
